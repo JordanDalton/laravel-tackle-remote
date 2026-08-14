@@ -41,9 +41,11 @@ php artisan tackle:remote --host=0.0.0.0
 #   --session=web     session name; transcripts persist per name and resume
 ```
 
-The command prints a URL containing a one-time access token (and its QR
-code). Open it on any device on the network. The session — and the URL —
-die with the process.
+The command prints a pairing URL (and its QR code). **Pairing links are
+single-use**: the first device to open one is paired and receives a signed
+session cookie; the link then expires and the terminal prints a fresh QR for
+the next device. Sessions — and everything they're signed with — die with
+the process.
 
 ## How it works
 
@@ -66,23 +68,57 @@ Tackle's `PermissionStore`, exactly like answering in the terminal.
 Unanswered questions time out to a **denial** (never an approval) after
 `answer_timeout` seconds (default 600).
 
+Auth is handled by `AccessGuard` (single-use pairing codes, HMAC-signed
+session cookies, failure lockout) — see [Security](#security).
+
 Because state is files, the UI survives page reloads, multiple devices can
 watch the same session, and there is no websocket infrastructure to run.
 
 ## Security
 
-- Binds to `127.0.0.1` by default. Exposing to the LAN is an explicit
-  `--host=0.0.0.0` choice.
-- Every request requires the per-run random token (128-bit), carried by the
-  QR URL and upgraded to a cookie. Constant-time comparison; no token, no
-  response.
-- Anyone with the link can drive the agent — treat the QR like a session
-  cookie. The token dies with the process.
+This endpoint edits files and runs commands on the machine it serves — treat
+it with SSH-grade caution. The model:
+
+- **Single-use pairing.** The QR URL carries a 128-bit pairing code that is
+  consumed by the first visit — a copied or replayed link gets nothing. Only
+  a hash of the code ever touches disk. Each claim triggers a fresh code for
+  the next device.
+- **Signed sessions.** Paired devices hold an HMAC-signed, `HttpOnly`,
+  `SameSite=Strict` cookie with an expiry (12h default, sliding renewal on
+  use). The signing secret lives only in process memory and the server
+  child's environment — never on disk — so every session dies with the
+  process.
+- **Failure lockout.** Repeated bad attempts from an address get a
+  temporary lockout. Valid cookies are exempt, so an attacker spamming
+  codes cannot lock out your paired phone.
+- **Timeouts deny.** An unanswered approval question is denied, never
+  approved.
+- **Local by default.** Binds `127.0.0.1`; exposing to the LAN is an
+  explicit `--host=0.0.0.0` choice.
 - All of core Tackle's guarantees still apply underneath: `PathGuard`,
   artisan/shell allowlists, budget enforcement, hooks.
-- For access beyond your LAN, put it behind a tunnel you trust
-  ([Expose](https://expose.dev), ngrok, Cloudflare Tunnel). Do not port-forward
-  it raw to the internet.
+
+## Running on a cloud server
+
+The supported way to reach a cloud-hosted Tackle Remote is to **not expose
+it at all** — put the server and your phone on the same private network:
+
+1. Install [Tailscale](https://tailscale.com) (or any WireGuard mesh) on the
+   server and your phone.
+2. Run `php artisan tackle:remote --host=<tailnet-ip>` (find it with
+   `tailscale ip -4`).
+3. Scan the QR. The URL is a `100.x` address only your authenticated
+   devices can route to; the public internet never sees a port.
+
+Traffic is end-to-end encrypted and device identity is enforced by the mesh
+— the pairing/cookie layer becomes defense in depth instead of the only
+door.
+
+If you must serve over the public internet, do not point `php -S` at it:
+terminate TLS at a real proxy (Caddy, nginx) and put an identity layer in
+front (Cloudflare Access, VPN, at minimum proxy auth). Plain HTTP on a
+public interface means cookies and pairing codes travel in cleartext —
+never do that.
 
 ## Roadmap
 

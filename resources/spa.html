@@ -124,11 +124,12 @@
 
 <script>
 (() => {
-  // The ?t= token was traded for a cookie by the server; strip it from the URL.
-  if (location.search.includes('t=')) history.replaceState(null, '', '/');
+  // The single-use ?pair= code was traded for an HttpOnly session cookie by
+  // the server; strip it from the URL so it can't be re-shared from history.
+  if (location.search.includes('pair=')) history.replaceState(null, '', '/');
 
-  const token = (document.cookie.match(/tackle_remote_token=([a-f0-9]+)/) || [])[1] || '';
-  const headers = { 'X-Tackle-Token': token, 'Content-Type': 'application/json' };
+  // Auth rides the HttpOnly cookie automatically on same-origin fetches.
+  const headers = { 'Content-Type': 'application/json' };
 
   const feed = document.getElementById('feed');
   const dot = document.getElementById('dot');

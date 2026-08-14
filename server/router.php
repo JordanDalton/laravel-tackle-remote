@@ -6,45 +6,76 @@
  *   php -S <host>:<port> router.php
  *
  * Deliberately framework-free: it loads only the Composer autoloader (for
- * RemoteState) and speaks to the agent process purely through the shared
- * state directory. Requests are file reads and writes measured in
- * microseconds, which is what makes single-threaded php -S sufficient.
+ * RemoteState/AccessGuard) and speaks to the agent process purely through
+ * the shared state directory. Requests are file reads and writes measured
+ * in microseconds, which is what makes single-threaded php -S sufficient.
  *
- * Auth: every request must carry the per-run token — as ?t= on the first
- * visit (the QR code's URL), then as an X-Tackle-Token header or cookie.
+ * Auth: the QR URL carries a single-use pairing code (?pair=). The first
+ * visit consumes it in exchange for a signed HttpOnly session cookie;
+ * everything after authenticates by cookie alone. Repeated failures from
+ * one address trip a temporary lockout.
  */
 
+use TackleRemote\Support\AccessGuard;
 use TackleRemote\Support\RemoteState;
 
 require getenv('TACKLE_REMOTE_AUTOLOAD');
 
 $state = new RemoteState((string) getenv('TACKLE_REMOTE_DIR'));
-$token = (string) getenv('TACKLE_REMOTE_TOKEN');
+$guard = new AccessGuard(
+    $state->dir(),
+    (string) getenv('TACKLE_REMOTE_SECRET'),
+    (int) (getenv('TACKLE_REMOTE_LIFETIME') ?: 43200),
+);
 
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+$ip = (string) ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
 
-$provided = $_GET['t']
-    ?? $_SERVER['HTTP_X_TACKLE_TOKEN']
-    ?? $_COOKIE['tackle_remote_token']
-    ?? '';
+$secureContext = ! empty($_SERVER['HTTPS'])
+    || ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https';
 
-if (! is_string($provided) || ! hash_equals($token, $provided)) {
-    http_response_code(403);
-    header('Content-Type: text/plain');
-    echo "Invalid or missing token. Open the exact URL printed by `php artisan tackle:remote`.\n";
-
-    return;
-}
-
-// A valid ?t= visit (the QR link) upgrades to a cookie so navigation
-// and API calls don't need the query string.
-if (isset($_GET['t'])) {
-    setcookie('tackle_remote_token', $token, [
-        'httponly' => false, // the SPA reads it to send as a header
+$setSessionCookie = static function () use ($guard, $secureContext): void {
+    setcookie(AccessGuard::COOKIE_NAME, $guard->mintCookie(), [
+        'httponly' => true,
         'samesite' => 'Strict',
+        'secure' => $secureContext,
         'path' => '/',
     ]);
+};
+
+$cookieStatus = $guard->checkCookie($_COOKIE[AccessGuard::COOKIE_NAME] ?? null);
+$authenticated = $cookieStatus !== 'invalid';
+
+if ($authenticated && $cookieStatus === 'renew') {
+    $setSessionCookie();
+}
+
+// The lockout gates only unauthenticated attempts: a validly signed cookie
+// cannot be brute-forced, so honoring it during a lockout is safe — and it
+// means an attacker spamming bad codes cannot lock out the paired device.
+if (! $authenticated) {
+    if ($guard->lockedOut($ip)) {
+        http_response_code(429);
+        header('Content-Type: text/plain');
+        echo "Too many failed attempts. Wait a minute and try again.\n";
+
+        return;
+    }
+
+    if (isset($_GET['pair']) && is_string($_GET['pair']) && $guard->claimPairingCode($_GET['pair'])) {
+        $authenticated = true;
+        $setSessionCookie();
+    }
+}
+
+if (! $authenticated) {
+    $guard->registerFailure($ip);
+    http_response_code(403);
+    header('Content-Type: text/plain');
+    echo "Not paired. Pairing links are single-use — get a fresh QR from the `php artisan tackle:remote` terminal.\n";
+
+    return;
 }
 
 $json = static function (array $payload, int $status = 200): void {

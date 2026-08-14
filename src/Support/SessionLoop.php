@@ -32,6 +32,7 @@ class SessionLoop
         private readonly RemoteState $state,
         private readonly string $sessionName,
         private readonly int $pollIntervalMs = 400,
+        private readonly ?\Closure $onIdle = null,
     ) {}
 
     public function stop(): void
@@ -52,6 +53,7 @@ class SessionLoop
             $message = $this->state->popMessage();
 
             if ($message === null) {
+                ($this->onIdle)?->__invoke();
                 usleep($this->pollIntervalMs * 1000);
 
                 continue;

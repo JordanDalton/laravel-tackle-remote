@@ -32,6 +32,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Session Lifetime (seconds)
+    |--------------------------------------------------------------------------
+    |
+    | How long a paired device's signed session cookie stays valid. Cookies
+    | past half-life are transparently renewed on use, so an active device
+    | never gets logged out — this bounds how long a *stolen* cookie works.
+    | Everything is signed with a per-run secret, so every session also dies
+    | when the tackle:remote process stops.
+    |
+    */
+    'session_lifetime' => (int) env('TACKLE_REMOTE_SESSION_LIFETIME', 43200),
+
+    /*
+    |--------------------------------------------------------------------------
     | Approval Timeout (seconds)
     |--------------------------------------------------------------------------
     |
