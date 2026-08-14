@@ -59,6 +59,22 @@ class RemoteCommand extends Command
         $this->newLine();
         $this->line(TerminalQr::render($url));
         $this->newLine();
+
+        // A machine on several networks (Wi-Fi + wired, VPN) has several
+        // addresses, and only the one on the phone's network will work. The QR
+        // uses the default-route address; list the rest as fallbacks.
+        $alternates = array_diff($this->candidateAddresses(), [parse_url($url, PHP_URL_HOST)]);
+
+        if ($host === '0.0.0.0' && $alternates !== []) {
+            $this->line('  If the QR does not load, this machine is also reachable at:');
+
+            foreach ($alternates as $address) {
+                $this->line("    http://{$address}:{$port}/?t={$token}");
+            }
+
+            $this->newLine();
+        }
+
         $this->line('  Scan with your phone. <fg=yellow>Anyone with this link can drive the agent</> — it dies with this process.');
         $this->line('  Press Ctrl+C to stop.');
         $this->newLine();
@@ -122,24 +138,54 @@ class RemoteCommand extends Command
     }
 
     /**
-     * Best-effort LAN IP so the printed URL / QR works from a phone when
-     * binding to all interfaces.
+     * The LAN IP the QR should point at. A connected UDP socket reveals which
+     * local address the OS routes outbound traffic from (no packet is sent) —
+     * far more reliable than scanning interfaces, which picks arbitrarily on
+     * machines that sit on several networks (Wi-Fi + wired, VPN tunnels).
      */
     private function lanAddress(): ?string
     {
-        $interfaces = @net_get_interfaces() ?: [];
+        if (function_exists('socket_create')) {
+            $socket = @socket_create(AF_INET, SOCK_DGRAM, SOL_UDP);
 
-        foreach ($interfaces as $interface) {
+            if ($socket !== false
+                && @socket_connect($socket, '8.8.8.8', 53)
+                && @socket_getsockname($socket, $address)
+                && $this->isPrivateAddress($address)) {
+                return $address;
+            }
+        }
+
+        return $this->candidateAddresses()[0] ?? null;
+    }
+
+    /**
+     * Every private IPv4 address on this machine, for the fallback list.
+     *
+     * @return array<int, string>
+     */
+    private function candidateAddresses(): array
+    {
+        $addresses = [];
+
+        foreach (@net_get_interfaces() ?: [] as $interface) {
             foreach ($interface['unicast'] ?? [] as $unicast) {
                 $address = $unicast['address'] ?? '';
 
-                if (str_starts_with($address, '192.168.') || str_starts_with($address, '10.')) {
-                    return $address;
+                if ($this->isPrivateAddress($address)) {
+                    $addresses[] = $address;
                 }
             }
         }
 
-        return null;
+        return array_values(array_unique($addresses));
+    }
+
+    private function isPrivateAddress(string $address): bool
+    {
+        return str_starts_with($address, '192.168.')
+            || str_starts_with($address, '10.')
+            || preg_match('/^172\.(1[6-9]|2\d|3[01])\./', $address) === 1;
     }
 
     private function trapSignals(): void
