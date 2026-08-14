@@ -168,6 +168,12 @@ match (true) {
         readfile($file);
     })(),
 
+    $path === '/api/commands' && $method === 'GET' => $json(['commands' => $state->commands()]),
+
+    $path === '/api/files' && $method === 'GET' => $json([
+        'files' => $state->searchFiles((string) ($_GET['q'] ?? '')),
+    ]),
+
     $path === '/api/clear' && $method === 'POST' => (static function () use ($state, $json) {
         $state->pushCommand('clear');
         $json(['ok' => true]);

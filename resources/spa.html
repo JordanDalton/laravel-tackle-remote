@@ -57,7 +57,7 @@
   }
   .chip .tool { color: var(--accent); font-weight: 600; font-family: ui-monospace, monospace; flex: none; }
   .chip .args { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, monospace; font-size: 12px; }
-  .note { text-align: center; color: var(--dim); font-size: 13px; margin: 10px 0; }
+  .note { text-align: center; color: var(--dim); font-size: 13px; margin: 10px 0; white-space: pre-line; }
   .note.error { color: var(--danger); }
 
   form.compose {
@@ -86,6 +86,14 @@
     border: 0; background: var(--danger); color: #fff; font-size: 11px; line-height: 20px; padding: 0;
   }
   .msg.user img { max-width: 100%; border-radius: 10px; display: block; margin-bottom: 6px; }
+  .popover { background: var(--panel); border-top: 1px solid var(--line); max-height: 40vh; overflow-y: auto; }
+  .pop-item {
+    display: flex; gap: 10px; align-items: baseline; width: 100%; text-align: left;
+    padding: 12px 14px; background: none; border: 0; border-bottom: 1px solid var(--line);
+    color: var(--text); font: inherit;
+  }
+  .pop-name { font-family: ui-monospace, monospace; font-size: 14px; color: var(--accent); flex: none; }
+  .pop-desc { color: var(--dim); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   .sheet-backdrop {
     position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 10;
@@ -125,6 +133,8 @@
   </header>
 
   <main id="feed"></main>
+
+  <div class="popover" id="popover" hidden></div>
 
   <div class="thumbs" id="thumbs"></div>
 
@@ -289,6 +299,62 @@
     }
   };
 
+  // --- Autocomplete: '/' at the start offers slash commands, '@' anywhere
+  // offers workspace files (searched against the agent-published index).
+  const input = document.getElementById('input');
+  const popover = document.getElementById('popover');
+  let commands = [];
+  let fileTimer = null;
+
+  fetch('/api/commands', { headers }).then((r) => r.json()).then((d) => { commands = d.commands || []; }).catch(() => {});
+
+  const hidePopover = () => { popover.hidden = true; popover.innerHTML = ''; };
+
+  const showItems = (items, apply) => {
+    popover.innerHTML = '';
+    if (!items.length) return hidePopover();
+    items.slice(0, 8).forEach((item) => {
+      const row = el('button', 'pop-item');
+      row.type = 'button';
+      row.appendChild(el('span', 'pop-name', item.name));
+      if (item.description) row.appendChild(el('span', 'pop-desc', item.description));
+      row.onclick = () => { apply(item); hidePopover(); input.focus(); };
+      popover.appendChild(row);
+    });
+    popover.hidden = false;
+  };
+
+  input.addEventListener('input', () => {
+    const value = input.value;
+
+    const slash = value.match(/^\/([\w:-]*)$/);
+    if (slash) {
+      const q = slash[1].toLowerCase();
+      return showItems(
+        commands.filter((c) => c.name.toLowerCase().startsWith(q)),
+        (item) => { input.value = '/' + item.name + ' '; },
+      );
+    }
+
+    const caret = input.selectionStart ?? value.length;
+    const at = value.slice(0, caret).match(/@([^\s@]*)$/);
+    if (at) {
+      clearTimeout(fileTimer);
+      fileTimer = setTimeout(async () => {
+        try {
+          const r = await fetch('/api/files?q=' + encodeURIComponent(at[1]), { headers });
+          const d = await r.json();
+          showItems((d.files || []).map((f) => ({ name: f })), (item) => {
+            input.value = value.slice(0, caret).replace(/@[^\s@]*$/, '@' + item.name + ' ') + value.slice(caret);
+          });
+        } catch { hidePopover(); }
+      }, 150);
+      return;
+    }
+
+    hidePopover();
+  });
+
   // --- Photo attachments: downscale on-device (iPhone photos are 3-10MB
   // HEIC; a 1600px JPEG is ~300KB, reads fine, and Safari's canvas decodes
   // HEIC for free), preview in a strip, upload on send.
@@ -342,10 +408,20 @@
 
   document.getElementById('compose').addEventListener('submit', async (event) => {
     event.preventDefault();
-    const input = document.getElementById('input');
     const send = document.getElementById('send');
     const text = input.value.trim();
     if (!text && !pending.length) return;
+
+    hidePopover();
+
+    // /help renders locally from the published command list — no agent turn.
+    if (text === '/help') {
+      const lines = commands.map((c) => '/' + c.name + (c.description ? ' — ' + c.description : ''));
+      feed.appendChild(el('div', 'note', lines.join('\n') || 'No commands available.'));
+      input.value = '';
+      scrollBottom();
+      return;
+    }
 
     send.disabled = true;
 

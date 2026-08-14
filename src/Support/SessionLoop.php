@@ -2,16 +2,23 @@
 
 namespace TackleRemote\Support;
 
+use FilesystemIterator;
 use Laravel\Ai\Files\Image;
 use Laravel\Ai\Streaming\Events\StreamEnd;
 use Laravel\Ai\Streaming\Events\TextDelta;
 use Laravel\Ai\Streaming\Events\ToolCall;
 use Laravel\Ai\Streaming\Events\ToolResult;
+use RecursiveCallbackFilterIterator;
+use RecursiveDirectoryIterator;
+use RecursiveIteratorIterator;
 use Tackle\Contracts\CodingAgent;
 use Tackle\Events\SessionEnded;
 use Tackle\Events\SessionStarted;
 use Tackle\Support\BudgetTracker;
 use Tackle\Support\ConversationCompactor;
+use Tackle\Support\CustomCommands;
+use Tackle\Support\ImageAttachments;
+use Tackle\Support\PathGuard;
 use Tackle\Support\SessionStore;
 use Throwable;
 
@@ -44,6 +51,8 @@ class SessionLoop
     public function run(): void
     {
         $this->resumeSession();
+        $this->publishCommands();
+        $this->publishFileIndex();
 
         SessionStarted::dispatch('tackle:remote', (string) config('tackle.provider', 'anthropic'), (string) config('tackle.model'));
 
@@ -70,20 +79,29 @@ class SessionLoop
                 continue;
             }
 
+            $text = (string) $message['text'];
             $images = array_values(array_filter(array_map(
                 fn ($id) => $this->state->attachmentPath((string) $id),
                 (array) ($message['images'] ?? []),
             )));
 
+            if (($parsed = CustomCommands::parse($text)) !== null) {
+                $this->runSlashCommand($parsed[0], $parsed[1], $text, $images);
+                $this->publishState('idle');
+
+                continue;
+            }
+
             $this->state->emit('user', [
-                'text' => $message['text'],
+                'text' => $text,
                 ...($images !== [] ? ['images' => array_map('basename', $images)] : []),
             ]);
             $this->publishState('running');
 
-            $this->runTurn($message['text'], $images);
+            $this->runTurn($text, $images);
 
             $this->persistSession();
+            $this->publishFileIndex();
             $this->publishState('idle');
         }
 
@@ -98,6 +116,48 @@ class SessionLoop
     }
 
     /**
+     * The same built-ins ai:code's REPL has, plus project commands from
+     * .tackle/commands/*.md. /help never reaches here — the UI renders it
+     * from the published command list.
+     *
+     * @param  array<int, string>  $images
+     */
+    private function runSlashCommand(string $name, string $arguments, string $original, array $images): void
+    {
+        if ($name === 'clear') {
+            $this->clearConversation();
+
+            return;
+        }
+
+        if ($name === 'compact') {
+            $this->state->emit('user', ['text' => $original]);
+            $compacted = $this->compactor->compact($this->agent);
+            $this->state->emit('status', ['text' => $compacted ? 'Conversation compacted.' : 'Nothing to compact yet.']);
+            $this->persistSession();
+
+            return;
+        }
+
+        $rendered = app(CustomCommands::class)->render($name, $arguments);
+
+        if ($rendered === null) {
+            $this->state->emit('error', [
+                'text' => "Unknown command /{$name} — see /help, or add .tackle/commands/{$name}.md to define it.",
+            ]);
+
+            return;
+        }
+
+        // The transcript shows what was typed; the agent gets the template.
+        $this->state->emit('user', ['text' => $original]);
+        $this->publishState('running');
+        $this->runTurn($rendered, $images);
+        $this->persistSession();
+        $this->publishFileIndex();
+    }
+
+    /**
      * @param  array<int, string>  $imagePaths
      */
     private function runTurn(string $task, array $imagePaths = []): void
@@ -107,7 +167,18 @@ class SessionLoop
             $this->compactor->compact($this->agent);
         }
 
-        $attachments = array_map(fn (string $path) => Image::fromPath($path), $imagePaths);
+        // @-mentioned images on the server attach as vision input, exactly
+        // as they do when dropped into the ai:code terminal.
+        [$task, $mentioned, $unreadable] = ImageAttachments::extract($task, $this->workspaceRoot());
+
+        foreach ($unreadable as $path) {
+            $this->state->emit('status', ['text' => "Could not read image: {$path}"]);
+        }
+
+        $attachments = [
+            ...array_map(fn (string $path) => Image::fromPath($path), $imagePaths),
+            ...$mentioned,
+        ];
 
         try {
             $this->agent->stream($task, $attachments)->each(function ($event) {
@@ -174,6 +245,84 @@ class SessionLoop
         $this->state->clearAttachments();
         $this->state->emit('cleared', ['session' => $this->sessionName]);
         $this->publishState('idle');
+    }
+
+    /**
+     * Publish the slash-command roster for the composer's autocomplete:
+     * built-ins plus project commands, described by their template's first line.
+     */
+    private function publishCommands(): void
+    {
+        $commands = [
+            ['name' => 'clear', 'description' => 'Forget the conversation and start fresh'],
+            ['name' => 'compact', 'description' => 'Summarize older history to free up context'],
+            ['name' => 'help', 'description' => 'List available commands'],
+        ];
+
+        foreach (app(CustomCommands::class)->all() as $name => $path) {
+            $firstLine = trim((string) strtok((string) @file_get_contents($path), "\n"));
+
+            $commands[] = [
+                'name' => $name,
+                'description' => mb_substr(ltrim($firstLine, "# \t"), 0, 80),
+            ];
+        }
+
+        $this->state->putCommands($commands);
+    }
+
+    /**
+     * Publish the workspace file index for @-mention autocomplete. git
+     * ls-files is fast and gitignore-aware (so .env, vendor/, storage/
+     * never appear); non-repo workspaces fall back to a capped scan with
+     * the same exclusions the ai:code terminal completion uses.
+     */
+    private function publishFileIndex(): void
+    {
+        $root = $this->workspaceRoot();
+        $files = [];
+
+        exec('git -C '.escapeshellarg($root).' ls-files --cached --others --exclude-standard 2>/dev/null', $files, $exit);
+
+        if ($exit !== 0 || $files === []) {
+            $files = $this->scanWorkspace($root);
+        }
+
+        $this->state->putFiles(array_slice($files, 0, 5000));
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function scanWorkspace(string $root): array
+    {
+        $excluded = ['vendor', 'node_modules', 'storage', '.git'];
+
+        $iterator = new RecursiveIteratorIterator(new RecursiveCallbackFilterIterator(
+            new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
+            fn ($file) => ! in_array($file->getFilename(), $excluded, true),
+        ));
+
+        $files = [];
+
+        foreach ($iterator as $file) {
+            if ($file->isFile()) {
+                $files[] = ltrim(str_replace($root, '', $file->getPathname()), DIRECTORY_SEPARATOR);
+            }
+
+            if (count($files) >= 5000) {
+                break;
+            }
+        }
+
+        sort($files);
+
+        return $files;
+    }
+
+    private function workspaceRoot(): string
+    {
+        return app(PathGuard::class)->workspace();
     }
 
     private function resumeSession(): void

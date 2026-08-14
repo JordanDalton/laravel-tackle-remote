@@ -139,6 +139,77 @@ class RemoteState
 
     /*
     |----------------------------------------------------------------------
+    | Autocomplete indexes (agent publishes, browser searches)
+    |----------------------------------------------------------------------
+    */
+
+    /**
+     * @param  array<int, array{name: string, description?: string}>  $commands
+     */
+    public function putCommands(array $commands): void
+    {
+        file_put_contents($this->dir.'/commands.json', json_encode($commands, JSON_UNESCAPED_SLASHES));
+    }
+
+    /**
+     * @return array<int, array{name: string, description?: string}>
+     */
+    public function commands(): array
+    {
+        $commands = json_decode((string) @file_get_contents($this->dir.'/commands.json'), true);
+
+        return is_array($commands) ? $commands : [];
+    }
+
+    /**
+     * @param  array<int, string>  $files
+     */
+    public function putFiles(array $files): void
+    {
+        file_put_contents($this->dir.'/files.json', json_encode(array_values($files), JSON_UNESCAPED_SLASHES));
+    }
+
+    /**
+     * Search the published file index: filename/path-prefix matches rank
+     * before substring matches.
+     *
+     * @return array<int, string>
+     */
+    public function searchFiles(string $query, int $limit = 8): array
+    {
+        $files = json_decode((string) @file_get_contents($this->dir.'/files.json'), true);
+
+        if (! is_array($files)) {
+            return [];
+        }
+
+        if ($query === '') {
+            return array_slice($files, 0, $limit);
+        }
+
+        $needle = strtolower($query);
+        $prefixed = [];
+        $contained = [];
+
+        foreach ($files as $file) {
+            $haystack = strtolower((string) $file);
+
+            if (str_starts_with($haystack, $needle) || str_starts_with(basename($haystack), $needle)) {
+                $prefixed[] = $file;
+
+                if (count($prefixed) >= $limit) {
+                    break;
+                }
+            } elseif (count($contained) < $limit && str_contains($haystack, $needle)) {
+                $contained[] = $file;
+            }
+        }
+
+        return array_slice([...$prefixed, ...$contained], 0, $limit);
+    }
+
+    /*
+    |----------------------------------------------------------------------
     | Image attachments (browser uploads, agent reads)
     |----------------------------------------------------------------------
     */

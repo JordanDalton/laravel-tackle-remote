@@ -71,6 +71,14 @@ Unanswered questions time out to a **denial** (never an approval) after
 Auth is handled by `AccessGuard` (single-use pairing codes, HMAC-signed
 session cookies, failure lockout) — see [Security](#security).
 
+**Slash commands and @-mentions**: typing `/` in the composer offers the
+same commands the `ai:code` terminal has — `/clear`, `/compact`, `/help`,
+plus your project's `.tackle/commands/*.md` templates, expanded server-side
+with identical `$ARGUMENTS` semantics. Typing `@` offers workspace files
+from a git-aware index (`git ls-files`, so `.env`, `vendor/`, and everything
+gitignored never appear), refreshed after each turn; an `@`-mentioned image
+on the server attaches as vision input, exactly as in the terminal.
+
 **Photos**: the 📷 button attaches images from the camera or library. They
 are downscaled on-device to ~1600px JPEG (an iPhone HEIC becomes ~300KB and
 Safari converts it for free), validated server-side (type whitelist, 5 MB

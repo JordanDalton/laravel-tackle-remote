@@ -164,3 +164,107 @@ it('passes uploaded images to the agent as attachments', function () {
 
     exec('rm -rf '.escapeshellarg($dir));
 });
+
+it('expands custom slash commands and publishes the roster', function () {
+    $workspace = sys_get_temp_dir().'/tackle-remote-ws-'.uniqid();
+    mkdir($workspace.'/.tackle/commands', 0755, true);
+    file_put_contents($workspace.'/.tackle/commands/greet.md', "Greet someone warmly\n\nSay hello to \$ARGUMENTS and nothing else.");
+    file_put_contents($workspace.'/readme.md', 'hi');
+    config()->set('tackle.workspace', $workspace);
+
+    $dir = sys_get_temp_dir().'/tackle-remote-loop-'.uniqid();
+    $state = new RemoteState($dir);
+    $state->pushMessage('/greet Jordan');
+
+    LoopTestRecordingAgent::$prompt = null;
+
+    $loop = new SessionLoop(
+        new LoopTestRecordingAgent,
+        app(BudgetTracker::class),
+        app(SessionStore::class),
+        app(ConversationCompactor::class),
+        $state,
+        'loop-slash-test',
+        pollIntervalMs: 1,
+        onIdle: function () use (&$loop) {
+            $loop->stop();
+        },
+    );
+
+    $loop->run();
+
+    $userEvent = collect($state->eventsAfter(0)['events'])->firstWhere('type', 'user');
+
+    expect(LoopTestRecordingAgent::$prompt)->toBe("Greet someone warmly\n\nSay hello to Jordan and nothing else.")
+        ->and($userEvent['text'])->toBe('/greet Jordan')
+        ->and(collect($state->commands())->pluck('name'))->toContain('clear', 'compact', 'help', 'greet')
+        ->and(collect($state->commands())->firstWhere('name', 'greet')['description'])->toBe('Greet someone warmly')
+        ->and($state->searchFiles('read'))->toContain('readme.md');
+
+    exec('rm -rf '.escapeshellarg($dir).' '.escapeshellarg($workspace));
+});
+
+it('reports unknown slash commands without running a turn', function () {
+    $workspace = sys_get_temp_dir().'/tackle-remote-ws-'.uniqid();
+    mkdir($workspace, 0755, true);
+    config()->set('tackle.workspace', $workspace);
+
+    $dir = sys_get_temp_dir().'/tackle-remote-loop-'.uniqid();
+    $state = new RemoteState($dir);
+    $state->pushMessage('/nope do things');
+
+    LoopTestRecordingAgent::$prompt = null;
+
+    $loop = new SessionLoop(
+        new LoopTestRecordingAgent,
+        app(BudgetTracker::class),
+        app(SessionStore::class),
+        app(ConversationCompactor::class),
+        $state,
+        'loop-unknown-test',
+        pollIntervalMs: 1,
+        onIdle: function () use (&$loop) {
+            $loop->stop();
+        },
+    );
+
+    $loop->run();
+
+    $error = collect($state->eventsAfter(0)['events'])->firstWhere('type', 'error');
+
+    expect(LoopTestRecordingAgent::$prompt)->toBeNull()
+        ->and($error['text'])->toContain('Unknown command /nope');
+
+    exec('rm -rf '.escapeshellarg($dir).' '.escapeshellarg($workspace));
+});
+
+it('treats path-like slashes as ordinary messages', function () {
+    $workspace = sys_get_temp_dir().'/tackle-remote-ws-'.uniqid();
+    mkdir($workspace, 0755, true);
+    config()->set('tackle.workspace', $workspace);
+
+    $dir = sys_get_temp_dir().'/tackle-remote-loop-'.uniqid();
+    $state = new RemoteState($dir);
+    $state->pushMessage('/usr/local/bin has a broken symlink');
+
+    LoopTestRecordingAgent::$prompt = null;
+
+    $loop = new SessionLoop(
+        new LoopTestRecordingAgent,
+        app(BudgetTracker::class),
+        app(SessionStore::class),
+        app(ConversationCompactor::class),
+        $state,
+        'loop-path-test',
+        pollIntervalMs: 1,
+        onIdle: function () use (&$loop) {
+            $loop->stop();
+        },
+    );
+
+    $loop->run();
+
+    expect(LoopTestRecordingAgent::$prompt)->toBe('/usr/local/bin has a broken symlink');
+
+    exec('rm -rf '.escapeshellarg($dir).' '.escapeshellarg($workspace));
+});

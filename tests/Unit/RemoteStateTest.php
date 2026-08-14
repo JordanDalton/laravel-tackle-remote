@@ -137,3 +137,30 @@ it('clears attachments', function () {
 
     expect($this->state->attachmentPath($id))->toBeNull();
 });
+
+it('round-trips the command roster', function () {
+    $this->state->putCommands([['name' => 'clear', 'description' => 'Start fresh']]);
+
+    expect($this->state->commands())->toBe([['name' => 'clear', 'description' => 'Start fresh']])
+        ->and((new RemoteState($this->dir.'-empty'))->commands())->toBe([]);
+});
+
+it('searches the file index with prefix matches ranked first', function () {
+    $this->state->putFiles([
+        'app/Models/User.php',
+        'app/Http/Controllers/UserController.php',
+        'config/users.php',
+        'routes/web.php',
+    ]);
+
+    expect($this->state->searchFiles('user'))->toBe([
+        'app/Models/User.php',
+        'app/Http/Controllers/UserController.php',
+        'config/users.php',
+    ])->and($this->state->searchFiles('app/'))->toBe([
+        'app/Models/User.php',
+        'app/Http/Controllers/UserController.php',
+    ])->and($this->state->searchFiles(''))->toHaveCount(4)
+        ->and($this->state->searchFiles('nope'))->toBe([])
+        ->and($this->state->searchFiles('user', 1))->toBe(['app/Models/User.php']);
+});
