@@ -1,0 +1,59 @@
+{
+    "name": "jordandalton/laravel-tackle-remote",
+    "description": "A browser UI for Laravel Tackle — drive your in-app AI coding agent from any device, including your phone.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": [
+        "laravel",
+        "ai",
+        "coding-assistant",
+        "tackle",
+        "mobile"
+    ],
+    "authors": [
+        {
+            "name": "Jordan Dalton",
+            "email": "jordan.dalton@ymail.com"
+        }
+    ],
+    "require": {
+        "php": "^8.3",
+        "jordandalton/laravel-tackle": "^1.22",
+        "laravel/framework": "^12.0 || ^13.0",
+        "spatie/laravel-package-tools": "^1.16",
+        "chillerlan/php-qrcode": "^5.0"
+    },
+    "require-dev": {
+        "pestphp/pest": "^3.0",
+        "pestphp/pest-plugin-laravel": "^3.0",
+        "orchestra/testbench": "^10.0",
+        "laravel/pint": "^1.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "TackleRemote\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "TackleRemote\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "./vendor/bin/pest",
+        "pint": "./vendor/bin/pint"
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "TackleRemote\\TackleRemoteServiceProvider"
+            ]
+        }
+    },
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    },
+    "minimum-stability": "stable"
+}
