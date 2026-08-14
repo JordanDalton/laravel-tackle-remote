@@ -19,6 +19,14 @@ persistent sessions. Only the terminal is replaced by a web page.
 
 ## Installation
 
+If Tackle v1.23+ is already installed, one command does it:
+
+```bash
+php artisan tackle:install remote
+```
+
+Or via Composer directly:
+
 ```bash
 composer require jordandalton/laravel-tackle-remote --dev
 php artisan vendor:publish --tag=tackle-remote-config   # optional
