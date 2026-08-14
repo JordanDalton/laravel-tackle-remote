@@ -3,6 +3,7 @@
 namespace TackleRemote\Support;
 
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 
 /**
  * The file protocol shared by the agent process (php artisan tackle:remote)
@@ -21,9 +22,19 @@ use Illuminate\Support\Str;
  */
 class RemoteState
 {
+    public const ATTACHMENT_TYPES = [
+        'jpg' => 'image/jpeg',
+        'jpeg' => 'image/jpeg',
+        'png' => 'image/png',
+        'gif' => 'image/gif',
+        'webp' => 'image/webp',
+    ];
+
+    private const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+
     public function __construct(private readonly string $dir)
     {
-        foreach ([$this->dir, $this->dir.'/inbox', $this->dir.'/answers'] as $path) {
+        foreach ([$this->dir, $this->dir.'/inbox', $this->dir.'/answers', $this->dir.'/attachments'] as $path) {
             if (! is_dir($path)) {
                 mkdir($path, 0755, true);
             }
@@ -84,9 +95,14 @@ class RemoteState
     |----------------------------------------------------------------------
     */
 
-    public function pushMessage(string $text): string
+    /**
+     * @param  array<int, string>  $images  attachment ids from storeAttachment()
+     */
+    public function pushMessage(string $text, array $images = []): string
     {
-        return $this->pushToInbox(['text' => $text]);
+        return $this->pushToInbox(
+            $images === [] ? ['text' => $text] : ['text' => $text, 'images' => array_values($images)],
+        );
     }
 
     /**
@@ -121,8 +137,59 @@ class RemoteState
             : null;
     }
 
+    /*
+    |----------------------------------------------------------------------
+    | Image attachments (browser uploads, agent reads)
+    |----------------------------------------------------------------------
+    */
+
     /**
-     * @param  array<string, string>  $payload
+     * Store an uploaded image, validating type and size. Returns the
+     * attachment id (a ULID filename) to reference in a message.
+     *
+     * @throws InvalidArgumentException
+     */
+    public function storeAttachment(string $originalName, string $bytes): string
+    {
+        $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+
+        if (! isset(self::ATTACHMENT_TYPES[$extension])) {
+            throw new InvalidArgumentException('Unsupported image type — use JPEG, PNG, GIF, or WebP.');
+        }
+
+        if ($bytes === '' || strlen($bytes) > self::MAX_ATTACHMENT_BYTES) {
+            throw new InvalidArgumentException('Images must be between 1 byte and 5 MB.');
+        }
+
+        $id = Str::ulid().'.'.$extension;
+
+        file_put_contents($this->dir.'/attachments/'.$id, $bytes);
+
+        return $id;
+    }
+
+    /**
+     * Absolute path for an attachment id, or null if it does not exist.
+     * basename() confines lookups to the attachments directory.
+     */
+    public function attachmentPath(string $id): ?string
+    {
+        $path = $this->dir.'/attachments/'.basename($id);
+
+        clearstatcache(true, $path);
+
+        return is_file($path) ? $path : null;
+    }
+
+    public function clearAttachments(): void
+    {
+        foreach (glob($this->dir.'/attachments/*') ?: [] as $file) {
+            @unlink($file);
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
      */
     private function pushToInbox(array $payload): string
     {

@@ -2,6 +2,7 @@
 
 namespace TackleRemote\Support;
 
+use Laravel\Ai\Files\Image;
 use Laravel\Ai\Streaming\Events\StreamEnd;
 use Laravel\Ai\Streaming\Events\TextDelta;
 use Laravel\Ai\Streaming\Events\ToolCall;
@@ -69,10 +70,18 @@ class SessionLoop
                 continue;
             }
 
-            $this->state->emit('user', ['text' => $message['text']]);
+            $images = array_values(array_filter(array_map(
+                fn ($id) => $this->state->attachmentPath((string) $id),
+                (array) ($message['images'] ?? []),
+            )));
+
+            $this->state->emit('user', [
+                'text' => $message['text'],
+                ...($images !== [] ? ['images' => array_map('basename', $images)] : []),
+            ]);
             $this->publishState('running');
 
-            $this->runTurn($message['text']);
+            $this->runTurn($message['text'], $images);
 
             $this->persistSession();
             $this->publishState('idle');
@@ -88,15 +97,20 @@ class SessionLoop
         $this->publishState('stopped');
     }
 
-    private function runTurn(string $task): void
+    /**
+     * @param  array<int, string>  $imagePaths
+     */
+    private function runTurn(string $task, array $imagePaths = []): void
     {
         if ($this->compactor->shouldCompact($this->agent)) {
             $this->state->emit('status', ['text' => 'Compacting earlier conversation…']);
             $this->compactor->compact($this->agent);
         }
 
+        $attachments = array_map(fn (string $path) => Image::fromPath($path), $imagePaths);
+
         try {
-            $this->agent->stream($task)->each(function ($event) {
+            $this->agent->stream($task, $attachments)->each(function ($event) {
                 if ($event instanceof TextDelta) {
                     $this->state->emit('text', ['delta' => $event->delta]);
 
@@ -157,6 +171,7 @@ class SessionLoop
         }
 
         $this->state->clearEvents();
+        $this->state->clearAttachments();
         $this->state->emit('cleared', ['session' => $this->sessionName]);
         $this->publishState('idle');
     }

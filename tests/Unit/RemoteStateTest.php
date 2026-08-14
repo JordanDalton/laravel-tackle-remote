@@ -96,3 +96,44 @@ it('clears the event log so cursors reset', function () {
         ->and($after['cursor'])->toBe(1)
         ->and($this->state->eventsAfter(0)['events'][0]['type'])->toBe('cleared');
 });
+
+it('stores and serves image attachments', function () {
+    $id = $this->state->storeAttachment('photo.jpg', 'fake-jpeg-bytes');
+
+    expect($id)->toEndWith('.jpg')
+        ->and($this->state->attachmentPath($id))->not->toBeNull()
+        ->and(file_get_contents($this->state->attachmentPath($id)))->toBe('fake-jpeg-bytes');
+});
+
+it('rejects non-image attachment types', function () {
+    $this->state->storeAttachment('evil.php', '<?php echo 1;');
+})->throws(InvalidArgumentException::class, 'Unsupported image type');
+
+it('rejects oversized attachments', function () {
+    $this->state->storeAttachment('big.png', str_repeat('x', 5 * 1024 * 1024 + 1));
+})->throws(InvalidArgumentException::class, 'between 1 byte and 5 MB');
+
+it('confines attachment lookups to the attachments directory', function () {
+    file_put_contents($this->dir.'/state.json', '{}');
+
+    expect($this->state->attachmentPath('../state.json'))->toBeNull()
+        ->and($this->state->attachmentPath('/etc/hosts'))->toBeNull()
+        ->and($this->state->attachmentPath('missing.jpg'))->toBeNull();
+});
+
+it('round-trips a message with image references', function () {
+    $id = $this->state->storeAttachment('photo.png', 'bytes');
+    $this->state->pushMessage('what is this?', [$id]);
+
+    $message = $this->state->popMessage();
+
+    expect($message['text'])->toBe('what is this?')
+        ->and($message['images'])->toBe([$id]);
+});
+
+it('clears attachments', function () {
+    $id = $this->state->storeAttachment('photo.png', 'bytes');
+    $this->state->clearAttachments();
+
+    expect($this->state->attachmentPath($id))->toBeNull();
+});

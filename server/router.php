@@ -107,15 +107,65 @@ match (true) {
     })(),
 
     $path === '/api/message' && $method === 'POST' => (static function () use ($state, $json, $body) {
-        $text = trim((string) ($body()['text'] ?? ''));
+        $payload = $body();
+        $text = trim((string) ($payload['text'] ?? ''));
 
-        if ($text === '') {
-            $json(['error' => 'Message text is required.'], 422);
+        // Only ids that resolve to a stored attachment survive.
+        $images = array_values(array_filter(
+            array_map('strval', (array) ($payload['images'] ?? [])),
+            fn (string $id) => $state->attachmentPath($id) !== null,
+        ));
+
+        if ($text === '' && $images === []) {
+            $json(['error' => 'A message needs text or an image.'], 422);
 
             return;
         }
 
-        $json(['id' => $state->pushMessage($text)]);
+        if ($text === '') {
+            $text = 'Please look at the attached image.';
+        }
+
+        $json(['id' => $state->pushMessage($text, $images)]);
+    })(),
+
+    $path === '/api/upload' && $method === 'POST' => (static function () use ($state, $json) {
+        $file = $_FILES['image'] ?? null;
+
+        if (! is_array($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            $json(['error' => 'No image received.'], 422);
+
+            return;
+        }
+
+        try {
+            $id = $state->storeAttachment(
+                (string) $file['name'],
+                (string) file_get_contents((string) $file['tmp_name']),
+            );
+        } catch (InvalidArgumentException $e) {
+            $json(['error' => $e->getMessage()], 422);
+
+            return;
+        }
+
+        $json(['id' => $id]);
+    })(),
+
+    $path === '/api/attachment' && $method === 'GET' => (static function () use ($state, $json) {
+        $file = $state->attachmentPath((string) ($_GET['id'] ?? ''));
+
+        if ($file === null) {
+            $json(['error' => 'Not found.'], 404);
+
+            return;
+        }
+
+        $extension = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+
+        header('Content-Type: '.(RemoteState::ATTACHMENT_TYPES[$extension] ?? 'application/octet-stream'));
+        header('Cache-Control: private, max-age=31536000');
+        readfile($file);
     })(),
 
     $path === '/api/clear' && $method === 'POST' => (static function () use ($state, $json) {

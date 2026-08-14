@@ -74,6 +74,18 @@
     background: var(--accent); color: #06281c;
   }
   form.compose button:disabled { opacity: 0.4; }
+  form.compose #attach {
+    background: var(--panel-2); border: 1px solid var(--line); padding: 0 12px; font-size: 18px;
+  }
+  .thumbs { display: flex; gap: 8px; padding: 0 12px; background: var(--panel); }
+  .thumbs:not(:empty) { padding-top: 10px; }
+  .thumbs .thumb { position: relative; }
+  .thumbs img { width: 56px; height: 56px; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); display: block; }
+  .thumbs .remove {
+    position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%;
+    border: 0; background: var(--danger); color: #fff; font-size: 11px; line-height: 20px; padding: 0;
+  }
+  .msg.user img { max-width: 100%; border-radius: 10px; display: block; margin-bottom: 6px; }
 
   .sheet-backdrop {
     position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 10;
@@ -114,7 +126,11 @@
 
   <main id="feed"></main>
 
+  <div class="thumbs" id="thumbs"></div>
+
   <form class="compose" id="compose">
+    <button type="button" id="attach" title="Attach a photo">📷</button>
+    <input type="file" id="file" accept="image/*" multiple hidden>
     <textarea id="input" rows="1" placeholder="Ask Tackle anything…" enterkeyhint="send"></textarea>
     <button type="submit" id="send">Send</button>
   </form>
@@ -164,10 +180,18 @@
 
   const render = (event) => {
     switch (event.type) {
-      case 'user':
+      case 'user': {
         agentBubble = null;
-        feed.appendChild(el('div', 'msg user', event.text));
+        const bubble = el('div', 'msg user');
+        (event.images || []).forEach((id) => {
+          const img = document.createElement('img');
+          img.src = '/api/attachment?id=' + encodeURIComponent(id);
+          bubble.appendChild(img);
+        });
+        bubble.appendChild(el('span', null, event.text));
+        feed.appendChild(bubble);
         break;
+      }
       case 'text':
         if (!agentBubble) { agentBubble = el('div', 'msg agent', ''); feed.appendChild(agentBubble); }
         agentBubble.textContent += event.delta;
@@ -265,17 +289,91 @@
     }
   };
 
+  // --- Photo attachments: downscale on-device (iPhone photos are 3-10MB
+  // HEIC; a 1600px JPEG is ~300KB, reads fine, and Safari's canvas decodes
+  // HEIC for free), preview in a strip, upload on send.
+  const pending = []; // {blob, url}
+  const thumbs = document.getElementById('thumbs');
+
+  const downscale = (file) => new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, 1600 / Math.max(img.width, img.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(img.src);
+      canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('encode failed')), 'image/jpeg', 0.8);
+    };
+    img.onerror = () => { URL.revokeObjectURL(img.src); reject(new Error('unreadable image')); };
+    img.src = URL.createObjectURL(file);
+  });
+
+  const renderThumbs = () => {
+    thumbs.innerHTML = '';
+    pending.forEach((item, index) => {
+      const wrap = el('div', 'thumb');
+      const img = document.createElement('img');
+      img.src = item.url;
+      const remove = el('button', 'remove', '✕');
+      remove.type = 'button';
+      remove.onclick = () => { URL.revokeObjectURL(item.url); pending.splice(index, 1); renderThumbs(); };
+      wrap.appendChild(img);
+      wrap.appendChild(remove);
+      thumbs.appendChild(wrap);
+    });
+  };
+
+  document.getElementById('attach').addEventListener('click', () => document.getElementById('file').click());
+
+  document.getElementById('file').addEventListener('change', async (event) => {
+    for (const file of event.target.files) {
+      try {
+        const blob = await downscale(file);
+        pending.push({ blob, url: URL.createObjectURL(blob) });
+      } catch {
+        feed.appendChild(el('div', 'note error', 'Could not read that image.'));
+      }
+    }
+    event.target.value = '';
+    renderThumbs();
+  });
+
   document.getElementById('compose').addEventListener('submit', async (event) => {
     event.preventDefault();
     const input = document.getElementById('input');
+    const send = document.getElementById('send');
     const text = input.value.trim();
-    if (!text) return;
+    if (!text && !pending.length) return;
 
-    input.value = '';
-    autoScroll = true;
-    await fetch('/api/message', { method: 'POST', headers, body: JSON.stringify({ text }) });
-    poll();
-    scrollBottom();
+    send.disabled = true;
+
+    try {
+      const images = [];
+
+      for (const item of pending) {
+        const form = new FormData();
+        form.append('image', item.blob, 'photo.jpg');
+        const response = await fetch('/api/upload', { method: 'POST', body: form });
+        if (!response.ok) throw new Error('upload failed');
+        images.push((await response.json()).id);
+      }
+
+      await fetch('/api/message', { method: 'POST', headers, body: JSON.stringify({ text, images }) });
+
+      input.value = '';
+      pending.forEach((item) => URL.revokeObjectURL(item.url));
+      pending.length = 0;
+      renderThumbs();
+      autoScroll = true;
+      poll();
+      scrollBottom();
+    } catch {
+      feed.appendChild(el('div', 'note error', 'Send failed — check the connection and try again.'));
+    } finally {
+      send.disabled = false;
+    }
   });
 
   document.getElementById('clear').addEventListener('click', async () => {

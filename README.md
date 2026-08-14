@@ -7,10 +7,10 @@ php artisan tackle:remote --host=0.0.0.0
 ```
 
 Run it, scan the QR code printed in your terminal, and your phone is now a
-remote control for the agent running inside your Laravel app: send it tasks,
-watch it work tool-by-tool, and answer its approval prompts from a bottom
-sheet — *"Tackle wants to run `php artisan migrate` — Deny / Allow once /
-Always allow."*
+remote control for the agent running inside your Laravel app: send it tasks
+— including photos straight from your camera — watch it work tool-by-tool,
+and answer its approval prompts from a bottom sheet — *"Tackle wants to run
+`php artisan migrate` — Deny / Allow once / Always allow."*
 
 It is the same harness as `ai:code` — same agent, same tools, same safety
 layer (protected paths, allowlists, budget, [hooks](https://github.com/JordanDalton/laravel-tackle#hooks),
@@ -70,6 +70,14 @@ Unanswered questions time out to a **denial** (never an approval) after
 
 Auth is handled by `AccessGuard` (single-use pairing codes, HMAC-signed
 session cookies, failure lockout) — see [Security](#security).
+
+**Photos**: the 📷 button attaches images from the camera or library. They
+are downscaled on-device to ~1600px JPEG (an iPhone HEIC becomes ~300KB and
+Safari converts it for free), validated server-side (type whitelist, 5 MB
+cap), and flow to the model through `laravel/ai` image attachments — so the
+agent can read a whiteboard, an error screenshot, or a UI sketch. Like
+`ai:code`, attachments belong to the turn they're sent with and are pruned
+on clear; they are not persisted across session resumes.
 
 Because state is files, the UI survives page reloads, multiple devices can
 watch the same session, and there is no websocket infrastructure to run.
