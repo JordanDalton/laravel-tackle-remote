@@ -39,6 +39,10 @@
   .budget .bar { width: 90px; height: 4px; background: var(--panel-2); border-radius: 2px; margin-top: 4px; overflow: hidden; }
   .budget .bar i { display: block; height: 100%; background: var(--accent); width: 0%; transition: width .3s; }
   .budget .bar i.hot { background: var(--danger); }
+  .clear-btn {
+    border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2);
+    color: var(--dim); font: inherit; font-size: 14px; width: 34px; height: 34px; flex: none;
+  }
 
   main { flex: 1; overflow-y: auto; padding: 14px 12px 18px; -webkit-overflow-scrolling: touch; }
   .msg { max-width: 88%; margin: 0 0 10px; padding: 10px 13px; border-radius: 14px;
@@ -105,6 +109,7 @@
       <div><b id="spent">$0.00</b> / <span id="limit">$0.00</span></div>
       <div class="bar"><i id="bar"></i></div>
     </div>
+    <button type="button" class="clear-btn" id="clear" title="Clear conversation">✕</button>
   </header>
 
   <main id="feed"></main>
@@ -147,10 +152,17 @@
     return node;
   };
 
+  // Auto-scroll: stick to the bottom unless the user has deliberately
+  // scrolled up to read history. Re-stick as soon as they return near the
+  // bottom, and whenever the viewport resizes (the mobile keyboard).
+  let autoScroll = true;
   const nearBottom = () => feed.scrollHeight - feed.scrollTop - feed.clientHeight < 120;
-  const stick = (fn) => { const stuck = nearBottom(); fn(); if (stuck) feed.scrollTop = feed.scrollHeight; };
+  const scrollBottom = () => requestAnimationFrame(() => { feed.scrollTop = feed.scrollHeight; });
 
-  const render = (event) => stick(() => {
+  feed.addEventListener('scroll', () => { autoScroll = nearBottom(); });
+  window.visualViewport?.addEventListener('resize', () => { if (autoScroll) scrollBottom(); });
+
+  const render = (event) => {
     switch (event.type) {
       case 'user':
         agentBubble = null;
@@ -171,9 +183,14 @@
       case 'status': feed.appendChild(el('div', 'note', event.text)); break;
       case 'error': feed.appendChild(el('div', 'note error', event.text)); break;
       case 'ready': feed.appendChild(el('div', 'note', 'Agent ready.')); break;
+      case 'cleared':
+        agentBubble = null;
+        feed.innerHTML = '';
+        feed.appendChild(el('div', 'note', 'Conversation cleared.'));
+        break;
       case 'turn_done': agentBubble = null; break;
     }
-  });
+  };
 
   const showQuestion = (question) => {
     if (!question) { shownQuestion = null; backdrop.classList.remove('open'); return; }
@@ -226,8 +243,19 @@
       if (!response.ok) throw new Error('poll failed');
       const payload = await response.json();
 
+      // A cursor moving backward means the event log was cleared while we
+      // were ahead of it — reset and re-read from the start.
+      if (payload.cursor < cursor) {
+        agentBubble = null;
+        feed.innerHTML = '';
+        cursor = 0;
+        polling = false;
+        return poll();
+      }
+
       payload.events.forEach(render);
       cursor = payload.cursor;
+      if (payload.events.length && autoScroll) scrollBottom();
       showQuestion(payload.question);
       applyState(payload.state || {});
     } catch {
@@ -244,7 +272,15 @@
     if (!text) return;
 
     input.value = '';
+    autoScroll = true;
     await fetch('/api/message', { method: 'POST', headers, body: JSON.stringify({ text }) });
+    poll();
+    scrollBottom();
+  });
+
+  document.getElementById('clear').addEventListener('click', async () => {
+    if (!confirm('Clear the conversation? The agent forgets everything discussed so far.')) return;
+    await fetch('/api/clear', { method: 'POST', headers });
     poll();
   });
 

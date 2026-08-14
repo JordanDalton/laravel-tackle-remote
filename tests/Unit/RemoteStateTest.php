@@ -71,3 +71,28 @@ it('survives malformed event lines', function () {
     expect($result['events'])->toHaveCount(2)
         ->and($result['cursor'])->toBe(3);
 });
+
+it('queues commands alongside text messages', function () {
+    $this->state->pushMessage('hello');
+    usleep(2000);
+    $this->state->pushCommand('clear');
+
+    expect($this->state->popMessage()['text'])->toBe('hello')
+        ->and($this->state->popMessage()['command'])->toBe('clear')
+        ->and($this->state->popMessage())->toBeNull();
+});
+
+it('clears the event log so cursors reset', function () {
+    $this->state->emit('user', ['text' => 'one']);
+    $this->state->emit('user', ['text' => 'two']);
+
+    $before = $this->state->eventsAfter(0);
+    $this->state->clearEvents();
+    $this->state->emit('cleared');
+
+    $after = $this->state->eventsAfter($before['cursor']);
+
+    expect($before['cursor'])->toBe(2)
+        ->and($after['cursor'])->toBe(1)
+        ->and($this->state->eventsAfter(0)['events'][0]['type'])->toBe('cleared');
+});

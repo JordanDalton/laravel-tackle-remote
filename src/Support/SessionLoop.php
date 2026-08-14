@@ -59,6 +59,16 @@ class SessionLoop
                 continue;
             }
 
+            if (($message['command'] ?? null) === 'clear') {
+                $this->clearConversation();
+
+                continue;
+            }
+
+            if (! isset($message['text'])) {
+                continue;
+            }
+
             $this->state->emit('user', ['text' => $message['text']]);
             $this->publishState('running');
 
@@ -128,6 +138,27 @@ class SessionLoop
         }
 
         $this->state->emit('turn_done', []);
+    }
+
+    /**
+     * The web equivalent of /clear in ai:code: forget the agent's
+     * conversation, delete the persisted session, and truncate the event
+     * log so every connected client resets. Budget spend is real money
+     * already spent, so it survives the clear.
+     */
+    private function clearConversation(): void
+    {
+        if (method_exists($this->agent, 'forgetConversation')) {
+            $this->agent->forgetConversation();
+        }
+
+        if ($this->sessions->enabled()) {
+            $this->sessions->forget($this->sessionName);
+        }
+
+        $this->state->clearEvents();
+        $this->state->emit('cleared', ['session' => $this->sessionName]);
+        $this->publishState('idle');
     }
 
     private function resumeSession(): void

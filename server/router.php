@@ -118,6 +118,11 @@ match (true) {
         $json(['id' => $state->pushMessage($text)]);
     })(),
 
+    $path === '/api/clear' && $method === 'POST' => (static function () use ($state, $json) {
+        $state->pushCommand('clear');
+        $json(['ok' => true]);
+    })(),
+
     $path === '/api/answer' && $method === 'POST' => (static function () use ($state, $json, $body) {
         $payload = $body();
         $id = (string) ($payload['id'] ?? '');

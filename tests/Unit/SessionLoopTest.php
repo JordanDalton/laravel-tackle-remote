@@ -57,3 +57,33 @@ it('invokes the onIdle callback on idle ticks', function () {
 
     exec('rm -rf '.escapeshellarg($dir));
 });
+
+it('clears the conversation on a clear command', function () {
+    $dir = sys_get_temp_dir().'/tackle-remote-loop-'.uniqid();
+    $state = new RemoteState($dir);
+
+    $state->emit('user', ['text' => 'old history']);
+    $state->pushCommand('clear');
+
+    $loop = new SessionLoop(
+        new LoopTestIdleAgent,
+        app(BudgetTracker::class),
+        app(SessionStore::class),
+        app(ConversationCompactor::class),
+        $state,
+        'loop-clear-test',
+        pollIntervalMs: 1,
+        onIdle: function () use (&$loop) {
+            $loop->stop(); // Inbox drained — the command was processed.
+        },
+    );
+
+    $loop->run();
+
+    $events = collect($state->eventsAfter(0)['events'])->pluck('type');
+
+    expect($events)->not->toContain('user')
+        ->and($events)->toContain('cleared');
+
+    exec('rm -rf '.escapeshellarg($dir));
+});

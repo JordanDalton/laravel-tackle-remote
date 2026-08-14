@@ -86,20 +86,22 @@ class RemoteState
 
     public function pushMessage(string $text): string
     {
-        $id = (string) Str::ulid();
-
-        file_put_contents(
-            $this->dir."/inbox/{$id}.json",
-            json_encode(['id' => $id, 'text' => $text], JSON_UNESCAPED_SLASHES),
-        );
-
-        return $id;
+        return $this->pushToInbox(['text' => $text]);
     }
 
     /**
-     * Claim the oldest queued message, removing it from the inbox.
+     * Queue a control command (e.g. 'clear') for the agent process.
+     */
+    public function pushCommand(string $command): string
+    {
+        return $this->pushToInbox(['command' => $command]);
+    }
+
+    /**
+     * Claim the oldest queued inbox entry, removing it from the inbox.
+     * Entries carry either 'text' (a user message) or 'command'.
      *
-     * @return array{id: string, text: string}|null
+     * @return array{id: string, text?: string, command?: string}|null
      */
     public function popMessage(): ?array
     {
@@ -114,9 +116,34 @@ class RemoteState
         $message = json_decode((string) file_get_contents($files[0]), true);
         unlink($files[0]);
 
-        return is_array($message) && isset($message['id'], $message['text'])
-            ? ['id' => (string) $message['id'], 'text' => (string) $message['text']]
+        return is_array($message) && isset($message['id']) && (isset($message['text']) || isset($message['command']))
+            ? $message
             : null;
+    }
+
+    /**
+     * @param  array<string, string>  $payload
+     */
+    private function pushToInbox(array $payload): string
+    {
+        $id = (string) Str::ulid();
+
+        file_put_contents(
+            $this->dir."/inbox/{$id}.json",
+            json_encode(['id' => $id, ...$payload], JSON_UNESCAPED_SLASHES),
+        );
+
+        return $id;
+    }
+
+    /**
+     * Truncate the event log. Clients notice their cursor moving backward
+     * and reset. Emit a fresh event right after so they have something to
+     * render.
+     */
+    public function clearEvents(): void
+    {
+        file_put_contents($this->dir.'/events.jsonl', '', LOCK_EX);
     }
 
     /*
