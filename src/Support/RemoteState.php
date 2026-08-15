@@ -39,6 +39,14 @@ class RemoteState
                 mkdir($path, 0755, true);
             }
         }
+
+        // Keep the state dir out of git AND out of build-tool file watchers:
+        // Tailwind 4's Vite plugin treats every non-gitignored file as a
+        // content source and full-reloads the host app's pages whenever one
+        // changes — which, for events.jsonl, is on every agent event.
+        if (! is_file($this->dir.'/.gitignore')) {
+            file_put_contents($this->dir.'/.gitignore', "*\n");
+        }
     }
 
     public function dir(): string

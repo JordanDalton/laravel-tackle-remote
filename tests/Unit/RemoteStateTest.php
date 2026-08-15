@@ -11,6 +11,10 @@ afterEach(function () {
     exec('rm -rf '.escapeshellarg($this->dir));
 });
 
+it('gitignores the state dir so host-app file watchers skip it', function () {
+    expect(file_get_contents($this->dir.'/.gitignore'))->toBe("*\n");
+});
+
 it('appends events and reads them back from a cursor', function () {
     $this->state->emit('user', ['text' => 'hello']);
     $this->state->emit('text', ['delta' => 'hi ']);
