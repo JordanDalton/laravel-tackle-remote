@@ -2,6 +2,8 @@
 
 **A browser UI for [Laravel Tackle](https://github.com/JordanDalton/laravel-tackle) — drive your in-app AI coding agent from any device, including your phone.**
 
+> 📚 **Full documentation: [tackle.jordandalton.com](https://tackle.jordandalton.com/integrations/remote)**
+
 ```bash
 php artisan tackle:remote --host=0.0.0.0
 ```
