@@ -168,6 +168,11 @@ match (true) {
         readfile($file);
     })(),
 
+    // Who am I? A client holding several projects needs to tell them apart,
+    // and a client shipped separately from the server needs to know what this
+    // one can do before it asks.
+    $path === '/api/hello' && $method === 'GET' => $json($state->identity() ?: ['api' => 1]),
+
     $path === '/api/commands' && $method === 'GET' => $json(['commands' => $state->commands()]),
 
     $path === '/api/files' && $method === 'GET' => $json([

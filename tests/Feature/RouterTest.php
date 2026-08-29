@@ -359,6 +359,45 @@ it('requires both an id and a value to answer', function () {
     }
 });
 
+it('identifies itself so a client holding several projects can tell them apart', function () {
+    $remote = remote();
+
+    try {
+        $cookie = pair($remote);
+
+        // The command writes identity at startup; nothing has run here, so
+        // the router falls back to declaring the contract version alone.
+        expect(json_decode(routerRequest($remote['url'].'/api/hello', cookie: $cookie)['body'], true))
+            ->toBe(['api' => 1]);
+
+        (new RemoteState($remote['dir']))->putIdentity([
+            'api' => 1,
+            'name' => 'Billing',
+            'environment' => 'local',
+            'project' => 'billing-app',
+        ]);
+
+        $hello = json_decode(routerRequest($remote['url'].'/api/hello', cookie: $cookie)['body'], true);
+
+        expect($hello['name'])->toBe('Billing')
+            ->and($hello['environment'])->toBe('local');
+    } finally {
+        stopRemote($remote);
+    }
+});
+
+it('does not identify itself to an unpaired client', function () {
+    $remote = remote();
+
+    try {
+        // The application's name is not something to hand to anything that
+        // can reach the port.
+        expect(routerRequest($remote['url'].'/api/hello')['status'])->toBe(403);
+    } finally {
+        stopRemote($remote);
+    }
+});
+
 it('serves the file index and command list', function () {
     $remote = remote();
 

@@ -2,6 +2,7 @@
 
 namespace TackleRemote\Commands;
 
+use Composer\InstalledVersions;
 use Illuminate\Console\Command;
 use Symfony\Component\Process\Process;
 use Tackle\Contracts\CodingAgent;
@@ -14,6 +15,7 @@ use TackleRemote\Support\RemoteInteraction;
 use TackleRemote\Support\RemoteState;
 use TackleRemote\Support\SessionLoop;
 use TackleRemote\Support\TerminalQr;
+use Throwable;
 
 class RemoteCommand extends Command
 {
@@ -37,6 +39,8 @@ class RemoteCommand extends Command
         $state = new RemoteState(
             rtrim((string) config('tackle-remote.storage_path'), '/').'/'.$session,
         );
+
+        $state->putIdentity($this->identity($session));
 
         // The signing secret lives only in memory and the child's env — never
         // on disk. Everything derived from it dies with this process.
@@ -94,6 +98,43 @@ class RemoteCommand extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * What this session is, for a client that may be holding several.
+     *
+     * Written here rather than served from the router because the router does
+     * not boot Laravel and so cannot answer the only question that matters to
+     * a person with five apps: which one is this?
+     *
+     * `api` is the contract version. A client shipped separately from the
+     * server — an App Store binary against a Composer package that moves
+     * several times a day — needs a way to know what it is talking to before
+     * it assumes.
+     *
+     * @return array<string, mixed>
+     */
+    private function identity(string $session): array
+    {
+        $version = static function (string $package): ?string {
+            try {
+                return class_exists(InstalledVersions::class)
+                    ? InstalledVersions::getPrettyVersion($package)
+                    : null;
+            } catch (Throwable) {
+                return null;
+            }
+        };
+
+        return [
+            'api' => 1,
+            'name' => (string) config('app.name', 'Laravel'),
+            'environment' => (string) $this->laravel->environment(),
+            'project' => basename(rtrim(base_path(), '/')),
+            'session' => $session,
+            'tackle' => $version('jordandalton/laravel-tackle'),
+            'remote' => $version('jordandalton/laravel-tackle-remote'),
+        ];
     }
 
     private function startHttpServer(string $host, int $port, string $secret, RemoteState $state): ?Process

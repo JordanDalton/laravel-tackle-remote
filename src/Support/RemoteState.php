@@ -383,6 +383,34 @@ class RemoteState
     /**
      * @return array<string, mixed>
      */
+    /**
+     * Who this session belongs to.
+     *
+     * The router is framework-free by design, so it cannot ask Laravel what
+     * the application is called. The command can, and does — this is written
+     * once at startup and read back by GET /api/hello.
+     *
+     * It matters for a client holding more than one project: without it, five
+     * paired apps are five identical rows, and an approval prompt cannot say
+     * which of them is asking.
+     *
+     * @param  array<string, mixed>  $identity
+     */
+    public function putIdentity(array $identity): void
+    {
+        file_put_contents($this->dir.'/identity.json', json_encode($identity, JSON_UNESCAPED_SLASHES));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function identity(): array
+    {
+        $identity = json_decode((string) @file_get_contents($this->dir.'/identity.json'), true);
+
+        return is_array($identity) ? $identity : [];
+    }
+
     public function state(): array
     {
         $path = $this->dir.'/state.json';
