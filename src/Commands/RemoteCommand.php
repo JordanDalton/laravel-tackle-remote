@@ -137,8 +137,24 @@ class RemoteCommand extends Command
         ];
     }
 
-    private function startHttpServer(string $host, int $port, string $secret, RemoteState $state): ?Process
+    protected function startHttpServer(string $host, int $port, string $secret, RemoteState $state): ?Process
     {
+        $socket = @stream_socket_server(
+            "tcp://{$host}:{$port}",
+            $errorCode,
+            $errorMessage,
+            STREAM_SERVER_BIND | STREAM_SERVER_LISTEN,
+        );
+
+        if ($socket === false) {
+            $detail = $errorMessage !== '' ? $errorMessage : "error {$errorCode}";
+            $this->components->error("Could not bind {$host}:{$port} — {$detail}");
+
+            return null;
+        }
+
+        fclose($socket);
+
         $router = dirname(__DIR__, 2).'/server/router.php';
 
         $server = new Process(
@@ -154,13 +170,22 @@ class RemoteCommand extends Command
         );
 
         $server->setTimeout(null);
+        // The built-in server logs every request to stderr. Symfony captures
+        // child output in pipes by default, but the agent can stay inside a
+        // long turn without returning here to drain them. Once a pipe fills,
+        // PHP blocks while logging and every mobile/web request hangs. Send
+        // both streams to the platform null device instead; the bind preflight
+        // above keeps the useful startup failure actionable.
+        $server->disableOutput();
         $server->start();
 
         // php -S fails fast when the port is taken; give it a beat to say so.
         usleep(300_000);
 
         if (! $server->isRunning()) {
-            $this->components->error("Could not bind {$host}:{$port} — ".trim($server->getErrorOutput()));
+            $exit = $server->getExitCode();
+            $detail = $exit === null ? 'the server exited during startup' : "the server exited with code {$exit}";
+            $this->components->error("Could not start the HTTP server on {$host}:{$port} — {$detail}.");
 
             return null;
         }
