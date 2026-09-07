@@ -17,6 +17,7 @@
  */
 
 use TackleRemote\Support\AccessGuard;
+use TackleRemote\Support\BrowserQr;
 use TackleRemote\Support\RemoteState;
 
 require getenv('TACKLE_REMOTE_AUTOLOAD');
@@ -34,6 +35,35 @@ $ip = (string) ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
 
 $secureContext = ! empty($_SERVER['HTTPS'])
     || ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https';
+
+// Reverse-proxy daemon logs often cannot render terminal block QR codes.
+// This preview renders the same single-use pairing link as SVG so operators
+// can open it on a desktop and scan it. Viewing it does not consume the code.
+if ($path === '/pairing' && $method === 'GET') {
+    $pairingCode = is_string($_GET['pair'] ?? null) ? $_GET['pair'] : '';
+
+    if (! $guard->recognizesPairingCode($pairingCode)) {
+        http_response_code(404);
+        header('Content-Type: text/plain; charset=utf-8');
+        echo "That pairing QR is no longer available. Get a fresh URL from the daemon log.\n";
+
+        return;
+    }
+
+    $publicUrl = rtrim((string) getenv('TACKLE_REMOTE_PUBLIC_URL'), '/').'/';
+
+    if ($publicUrl === '/') {
+        $scheme = $secureContext ? 'https' : 'http';
+        $publicUrl = $scheme.'://'.($_SERVER['HTTP_HOST'] ?? '127.0.0.1').'/';
+    }
+
+    header('Content-Type: image/svg+xml; charset=utf-8');
+    header('Cache-Control: no-store, private');
+    header("Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'");
+    echo BrowserQr::render($publicUrl.'?pair='.rawurlencode($pairingCode));
+
+    return;
+}
 
 $setSessionCookie = static function () use ($guard, $secureContext): void {
     setcookie(AccessGuard::COOKIE_NAME, $guard->mintCookie(), [

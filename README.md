@@ -6,6 +6,11 @@
 
 ```bash
 php artisan tackle:remote --host=0.0.0.0
+
+# Behind an HTTPS reverse proxy (the server still binds to localhost)
+php artisan tackle:remote \
+    --host=127.0.0.1 \
+    --public-url=https://example.com/tackle-remote
 ```
 
 Run it, scan the QR code printed in your terminal, and your phone is now a
@@ -13,6 +18,11 @@ remote control for the agent running inside your Laravel app: send it tasks
 — including photos straight from your camera — watch it work tool-by-tool,
 and answer its approval prompts from a bottom sheet — *"Tackle wants to run
 `php artisan migrate` — Deny / Allow once / Always allow."*
+
+When `--public-url` is set, the daemon prints a second browser URL instead of
+terminal QR blocks. Open that URL on a desktop to display a clean SVG QR, then
+scan it with the Tackle mobile app. Opening the preview does not consume the
+single-use pairing code.
 
 It is the same harness as `ai:code` — same agent, same tools, same safety
 layer (protected paths, allowlists, budget, [hooks](https://github.com/JordanDalton/laravel-tackle#hooks),
@@ -48,6 +58,7 @@ php artisan tackle:remote --host=0.0.0.0
 
 # Options:
 #   --port=8787       port to serve on
+#   --public-url=...  external URL to advertise in the QR behind a reverse proxy
 #   --session=web     session name; transcripts persist per name and resume
 ```
 

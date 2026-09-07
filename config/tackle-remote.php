@@ -17,6 +17,11 @@ return [
     'host' => env('TACKLE_REMOTE_HOST', '127.0.0.1'),
     'port' => (int) env('TACKLE_REMOTE_PORT', 8787),
 
+    // External URL placed in pairing QR codes when a reverse proxy fronts
+    // the private bind address. Paths are supported (for example,
+    // https://example.com/tackle-remote).
+    'public_url' => env('TACKLE_REMOTE_PUBLIC_URL'),
+
     /*
     |--------------------------------------------------------------------------
     | State Directory

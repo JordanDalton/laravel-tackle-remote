@@ -35,6 +35,15 @@ it('stores only a hash of the pairing code on disk', function () {
     expect(file_get_contents($this->dir.'/pairing.json'))->not->toContain($code);
 });
 
+it('recognizes the current pairing code without consuming it', function () {
+    $code = $this->guard->issuePairingCode();
+
+    expect($this->guard->recognizesPairingCode($code))->toBeTrue()
+        ->and($this->guard->recognizesPairingCode('not-a-code'))->toBeFalse()
+        ->and($this->guard->claimPairingCode($code))->toBeTrue()
+        ->and($this->guard->recognizesPairingCode($code))->toBeFalse();
+});
+
 it('issuing a new code invalidates the previous one', function () {
     $old = $this->guard->issuePairingCode();
     $new = $this->guard->issuePairingCode();

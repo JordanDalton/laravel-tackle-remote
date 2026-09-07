@@ -4,6 +4,7 @@ namespace TackleRemote\Commands;
 
 use Composer\InstalledVersions;
 use Illuminate\Console\Command;
+use InvalidArgumentException;
 use Symfony\Component\Process\Process;
 use Tackle\Contracts\CodingAgent;
 use Tackle\Contracts\InteractionPolicy;
@@ -22,6 +23,7 @@ class RemoteCommand extends Command
     protected $signature = 'tackle:remote
         {--host= : Bind address (default from config; use 0.0.0.0 to allow your LAN)}
         {--port= : Port (default from config)}
+        {--public-url= : Public HTTPS URL advertised in the pairing QR (for reverse proxies)}
         {--session=web : Session name — transcripts persist under this name}';
 
     protected $description = 'Serve a browser UI for Tackle — drive the agent from any device on your network';
@@ -35,6 +37,16 @@ class RemoteCommand extends Command
         $host = (string) ($this->option('host') ?: config('tackle-remote.host', '127.0.0.1'));
         $port = (int) ($this->option('port') ?: config('tackle-remote.port', 8787));
         $session = (string) $this->option('session');
+
+        try {
+            $publicUrl = $this->normalizePublicUrl(
+                $this->option('public-url') ?: config('tackle-remote.public_url'),
+            );
+        } catch (InvalidArgumentException $exception) {
+            $this->components->error($exception->getMessage());
+
+            return self::FAILURE;
+        }
 
         $state = new RemoteState(
             rtrim((string) config('tackle-remote.storage_path'), '/').'/'.$session,
@@ -59,14 +71,14 @@ class RemoteCommand extends Command
             (int) config('tackle-remote.answer_timeout', 600),
         ));
 
-        $this->server = $this->startHttpServer($host, $port, $secret, $state);
+        $this->server = $this->startHttpServer($host, $port, $secret, $state, $publicUrl);
 
         if ($this->server === null) {
             return self::FAILURE;
         }
 
         $this->components->info("Tackle Remote is up — session \"{$session}\"");
-        $this->printPairing($guard, $host, $port);
+        $this->printPairing($guard, $host, $port, $publicUrl);
         $this->line('  Pairing links are <options=bold>single-use</> — the first device to open one is paired, then it expires.');
         $this->line('  Press Ctrl+C to stop.');
         $this->newLine();
@@ -81,10 +93,10 @@ class RemoteCommand extends Command
             (int) config('tackle-remote.poll_interval_ms', 400),
             // When a device claims the pairing code, print a fresh one so the
             // terminal always shows a working QR for the next device.
-            onIdle: function () use ($guard, $host, $port) {
+            onIdle: function () use ($guard, $host, $port, $publicUrl) {
                 if (! $guard->hasUnclaimedCode()) {
                     $this->components->info('Device paired. New pairing code for additional devices:');
-                    $this->printPairing($guard, $host, $port);
+                    $this->printPairing($guard, $host, $port, $publicUrl);
                 }
             },
         );
@@ -137,8 +149,13 @@ class RemoteCommand extends Command
         ];
     }
 
-    protected function startHttpServer(string $host, int $port, string $secret, RemoteState $state): ?Process
-    {
+    protected function startHttpServer(
+        string $host,
+        int $port,
+        string $secret,
+        RemoteState $state,
+        ?string $publicUrl = null,
+    ): ?Process {
         $socket = @stream_socket_server(
             "tcp://{$host}:{$port}",
             $errorCode,
@@ -164,6 +181,7 @@ class RemoteCommand extends Command
                 'TACKLE_REMOTE_DIR' => $state->dir(),
                 'TACKLE_REMOTE_SECRET' => $secret,
                 'TACKLE_REMOTE_LIFETIME' => (string) config('tackle-remote.session_lifetime', 43200),
+                'TACKLE_REMOTE_PUBLIC_URL' => $publicUrl ?? '',
                 'TACKLE_REMOTE_SPA' => dirname(__DIR__, 2).'/resources/spa.html',
                 'TACKLE_REMOTE_AUTOLOAD' => base_path('vendor/autoload.php'),
             ],
@@ -198,20 +216,27 @@ class RemoteCommand extends Command
      * attached to several networks. All URLs carry the same single-use code —
      * whichever one the phone reaches first claims it.
      */
-    private function printPairing(AccessGuard $guard, string $host, int $port): void
+    private function printPairing(AccessGuard $guard, string $host, int $port, ?string $publicUrl = null): void
     {
         $code = $guard->issuePairingCode();
         $primary = $host === '0.0.0.0' ? ($this->lanAddress() ?? '127.0.0.1') : $host;
-        $url = "http://{$primary}:{$port}/?pair={$code}";
+        $url = $this->pairingUrl($code, $primary, $port, $publicUrl);
 
         $this->line('  <options=bold>'.$url.'</>');
         $this->newLine();
-        $this->line(TerminalQr::render($url));
-        $this->newLine();
+
+        if ($publicUrl !== null) {
+            $this->line('  Open this URL on another screen to display a scannable QR:');
+            $this->line('  <options=bold>'.$this->pairingPreviewUrl($code, $publicUrl).'</>');
+            $this->newLine();
+        } else {
+            $this->line(TerminalQr::render($url));
+            $this->newLine();
+        }
 
         $alternates = array_diff($this->candidateAddresses(), [$primary]);
 
-        if ($host === '0.0.0.0' && $alternates !== []) {
+        if ($publicUrl === null && $host === '0.0.0.0' && $alternates !== []) {
             $this->line('  If the QR does not load, this machine is also reachable at:');
 
             foreach ($alternates as $address) {
@@ -220,6 +245,42 @@ class RemoteCommand extends Command
 
             $this->newLine();
         }
+    }
+
+    protected function pairingUrl(string $code, string $host, int $port, ?string $publicUrl = null): string
+    {
+        $baseUrl = $publicUrl ?? "http://{$host}:{$port}/";
+
+        return $baseUrl.'?pair='.rawurlencode($code);
+    }
+
+    protected function pairingPreviewUrl(string $code, string $publicUrl): string
+    {
+        return $publicUrl.'pairing?pair='.rawurlencode($code);
+    }
+
+    protected function normalizePublicUrl(mixed $url): ?string
+    {
+        if ($url === null || trim((string) $url) === '') {
+            return null;
+        }
+
+        $url = trim((string) $url);
+        $parts = parse_url($url);
+
+        if ($parts === false
+            || ! in_array(strtolower((string) ($parts['scheme'] ?? '')), ['http', 'https'], true)
+            || empty($parts['host'])
+            || isset($parts['query'])
+            || isset($parts['fragment'])
+            || isset($parts['user'])
+            || isset($parts['pass'])) {
+            throw new InvalidArgumentException(
+                'The --public-url value must be an absolute HTTP(S) URL without credentials, a query, or a fragment.',
+            );
+        }
+
+        return rtrim($url, '/').'/';
     }
 
     /**

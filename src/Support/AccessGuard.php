@@ -62,6 +62,31 @@ class AccessGuard
     }
 
     /**
+     * Check whether a code is the currently unclaimed code without consuming
+     * it. Used only to render the browser QR preview.
+     */
+    public function recognizesPairingCode(string $code): bool
+    {
+        if (preg_match('/\A[a-f0-9]{32}\z/D', $code) !== 1) {
+            return false;
+        }
+
+        $path = $this->dir.'/pairing.json';
+        clearstatcache(true, $path);
+
+        if (! is_file($path)) {
+            return false;
+        }
+
+        $stored = json_decode((string) file_get_contents($path), true);
+        $expected = is_array($stored) ? ($stored['hash'] ?? '') : '';
+
+        return is_string($expected)
+            && $expected !== ''
+            && hash_equals($expected, hash_hmac('sha256', $code, $this->secret));
+    }
+
+    /**
      * Claim a pairing code. True exactly once per issued code: the claim
      * consumes it atomically (rename wins races), so a copied QR replayed
      * later gets nothing. A wrong code does not consume anything.

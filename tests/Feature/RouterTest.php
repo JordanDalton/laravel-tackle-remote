@@ -31,6 +31,7 @@ function remote(): array
         'TACKLE_REMOTE_DIR' => $dir,
         'TACKLE_REMOTE_SECRET' => $secret,
         'TACKLE_REMOTE_LIFETIME' => '43200',
+        'TACKLE_REMOTE_PUBLIC_URL' => 'https://example.com/tackle-remote/',
         'TACKLE_REMOTE_SPA' => $root.'/resources/spa.html',
         'TACKLE_REMOTE_AUTOLOAD' => $root.'/vendor/autoload.php',
         'PATH' => getenv('PATH'),
@@ -197,6 +198,23 @@ it('claims a pairing code and issues a session cookie', function () {
 
     try {
         expect(pair($remote))->toBeString()->not->toBeEmpty();
+    } finally {
+        stopRemote($remote);
+    }
+});
+
+it('renders a browser QR preview without consuming the pairing code', function () {
+    $remote = remote();
+
+    try {
+        $guard = new AccessGuard($remote['dir'], $remote['secret'], 43200);
+        $code = $guard->issuePairingCode();
+        $preview = routerRequest($remote['url'].'/pairing?pair='.$code);
+
+        expect($preview['status'])->toBe(200)
+            ->and($preview['body'])->toContain('<svg')
+            ->and(routerRequest($remote['url'].'/api/poll?pair='.$code)['status'])->toBe(200)
+            ->and(routerRequest($remote['url'].'/pairing?pair='.$code)['status'])->toBe(404);
     } finally {
         stopRemote($remote);
     }
