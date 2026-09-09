@@ -74,6 +74,18 @@ is never needed again.
 
 Run `php artisan tackle:connect` as a long-running Forge daemon. It makes
 outbound HTTPS requests only; no inbound port, reverse proxy, or VPN is needed.
+
+After the daemon is running a release that supports restart signals, add this
+to the end of your deployment script so Forge's supervisor starts the connector
+again on the newly deployed release:
+
+```bash
+php artisan tackle:connect:restart
+```
+
+The first deployment containing this command still needs one manual daemon
+restart. Later deployments restart gracefully without re-enrollment.
+
 To deliberately replace a connector, run `php artisan tackle:connect --forget`
 and generate a fresh enrollment in Tackle Cloud.
 

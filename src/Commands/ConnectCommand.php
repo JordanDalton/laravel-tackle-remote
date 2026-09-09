@@ -13,6 +13,7 @@ use Tackle\Support\SessionStore;
 use TackleRemote\Support\CloudBridge;
 use TackleRemote\Support\CloudConnectorClient;
 use TackleRemote\Support\CloudCredentials;
+use TackleRemote\Support\ConnectorRestartSignal;
 use TackleRemote\Support\RemoteInteraction;
 use TackleRemote\Support\RemoteState;
 use TackleRemote\Support\SessionLoop;
@@ -109,9 +110,19 @@ class ConnectCommand extends Command
         ]);
         $identity = $this->heartbeatState();
         $bridge = new CloudBridge($client, $stored, $state, $identity);
+        $restartSignal = new ConnectorRestartSignal(
+            (string) config('tackle-remote.connector_restart_signal_path'),
+        );
         $nextSyncAt = 0.0;
         $lastError = '';
-        $sync = function () use ($bridge, &$nextSyncAt, &$lastError): void {
+        $sync = function () use ($bridge, $restartSignal, &$nextSyncAt, &$lastError): void {
+            if ($restartSignal->requested()) {
+                $this->components->info('Connector restart requested; shutting down gracefully.');
+                $this->loop?->stop();
+
+                return;
+            }
+
             if (microtime(true) < $nextSyncAt) {
                 return;
             }

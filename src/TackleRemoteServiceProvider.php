@@ -6,6 +6,7 @@ use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
 use TackleRemote\Commands\ConnectCommand;
 use TackleRemote\Commands\RemoteCommand;
+use TackleRemote\Commands\RestartConnectCommand;
 
 class TackleRemoteServiceProvider extends PackageServiceProvider
 {
@@ -17,6 +18,7 @@ class TackleRemoteServiceProvider extends PackageServiceProvider
             ->hasCommands([
                 ConnectCommand::class,
                 RemoteCommand::class,
+                RestartConnectCommand::class,
             ]);
     }
 }

@@ -5,12 +5,22 @@ use Illuminate\Support\Facades\Http;
 
 beforeEach(function () {
     $this->credentialsPath = sys_get_temp_dir().'/tackle-connect-'.uniqid().'/connector.json';
+    $this->restartSignalPath = dirname($this->credentialsPath).'/connect.restart';
     config()->set('tackle-remote.connector_credentials_path', $this->credentialsPath);
+    config()->set('tackle-remote.connector_restart_signal_path', $this->restartSignalPath);
 });
 
 afterEach(function () {
     @unlink($this->credentialsPath);
+    @unlink($this->restartSignalPath);
     @rmdir(dirname($this->credentialsPath));
+});
+
+it('broadcasts a connector restart signal', function () {
+    expect(Artisan::call('tackle:connect:restart'))->toBe(0)
+        ->and(file_exists($this->restartSignalPath))->toBeTrue()
+        ->and(file_get_contents($this->restartSignalPath))->not->toBe('')
+        ->and(Artisan::output())->toContain('restart requested');
 });
 
 it('enrolls once, stores the credential, and heartbeats on later starts', function () {

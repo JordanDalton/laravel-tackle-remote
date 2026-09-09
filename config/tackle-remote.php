@@ -90,6 +90,10 @@ return [
         'TACKLE_CONNECTOR_CREDENTIALS_PATH',
         storage_path('tackle-remote/cloud-connector.json'),
     ),
+    'connector_restart_signal_path' => env(
+        'TACKLE_CONNECTOR_RESTART_SIGNAL_PATH',
+        storage_path('tackle-remote/connect.restart'),
+    ),
     'connector_heartbeat_seconds' => (int) env('TACKLE_CONNECTOR_HEARTBEAT_SECONDS', 30),
     'connector_sync_seconds' => (float) env('TACKLE_CONNECTOR_SYNC_SECONDS', 1),
 
