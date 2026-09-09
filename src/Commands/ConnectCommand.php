@@ -5,8 +5,17 @@ namespace TackleRemote\Commands;
 use Composer\InstalledVersions;
 use Illuminate\Console\Command;
 use Illuminate\Http\Client\RequestException;
+use Tackle\Contracts\CodingAgent;
+use Tackle\Contracts\InteractionPolicy;
+use Tackle\Support\BudgetTracker;
+use Tackle\Support\ConversationCompactor;
+use Tackle\Support\SessionStore;
+use TackleRemote\Support\CloudBridge;
 use TackleRemote\Support\CloudConnectorClient;
 use TackleRemote\Support\CloudCredentials;
+use TackleRemote\Support\RemoteInteraction;
+use TackleRemote\Support\RemoteState;
+use TackleRemote\Support\SessionLoop;
 use Throwable;
 
 class ConnectCommand extends Command
@@ -15,12 +24,15 @@ class ConnectCommand extends Command
         {--url= : Tackle Cloud connector enrollment URL}
         {--code= : Single-use connector enrollment code}
         {--name= : Name shown for this deployment}
+        {--session=cloud : Persistent Tackle session used by Cloud clients}
         {--once : Enroll or heartbeat once, then exit}
         {--forget : Remove the saved connector credential and exit}';
 
     protected $description = 'Keep this Laravel deployment connected to Tackle Cloud';
 
     private bool $running = true;
+
+    private ?SessionLoop $loop = null;
 
     public function handle(CloudConnectorClient $client): int
     {
@@ -64,20 +76,10 @@ class ConnectCommand extends Command
             return self::FAILURE;
         }
 
-        $this->trapSignals();
-        $delay = max(5, (int) config('tackle-remote.connector_heartbeat_seconds', 30));
-        $announced = false;
-
-        while ($this->running) {
+        if ((bool) $this->option('once')) {
             try {
                 $client->heartbeat($stored, $this->heartbeatState());
-
-                if (! $announced) {
-                    $this->components->info(
-                        "Connected to Tackle Cloud as {$stored['connector_id']}.",
-                    );
-                    $announced = true;
-                }
+                $this->components->info("Connected to Tackle Cloud as {$stored['connector_id']}.");
             } catch (RequestException $exception) {
                 $status = $exception->response->status();
                 $this->components->error(
@@ -86,23 +88,67 @@ class ConnectCommand extends Command
                         : "Tackle Cloud heartbeat failed with HTTP {$status}; retrying.",
                 );
 
-                if ((bool) $this->option('once') || in_array($status, [401, 403], true)) {
-                    return self::FAILURE;
-                }
+                return self::FAILURE;
             } catch (Throwable $exception) {
-                $this->components->error("Tackle Cloud is unavailable: {$exception->getMessage()} Retrying.");
+                $this->components->error("Tackle Cloud is unavailable: {$exception->getMessage()}");
 
-                if ((bool) $this->option('once')) {
-                    return self::FAILURE;
+                return self::FAILURE;
+            }
+
+            return self::SUCCESS;
+        }
+
+        $session = trim((string) $this->option('session')) ?: 'cloud';
+        $state = new RemoteState(rtrim((string) config('tackle-remote.storage_path'), '/').'/'.$session);
+        $state->putIdentity([
+            'api' => 1,
+            'name' => (string) config('app.name', 'Laravel'),
+            'environment' => (string) app()->environment(),
+            'project' => basename(rtrim(base_path(), '/')),
+            'session' => $session,
+        ]);
+        $identity = $this->heartbeatState();
+        $bridge = new CloudBridge($client, $stored, $state, $identity);
+        $nextSyncAt = 0.0;
+        $lastError = '';
+        $sync = function () use ($bridge, &$nextSyncAt, &$lastError): void {
+            if (microtime(true) < $nextSyncAt) {
+                return;
+            }
+
+            $nextSyncAt = microtime(true) + max(0.25, (float) config('tackle-remote.connector_sync_seconds', 1));
+
+            try {
+                $bridge->sync();
+                $lastError = '';
+            } catch (Throwable $exception) {
+                if ($exception->getMessage() !== $lastError) {
+                    $this->components->warn("Tackle Cloud sync failed: {$exception->getMessage()} Retrying.");
+                    $lastError = $exception->getMessage();
                 }
             }
+        };
 
-            if ((bool) $this->option('once')) {
-                return self::SUCCESS;
-            }
+        $this->laravel->instance(InteractionPolicy::class, new RemoteInteraction(
+            $state,
+            (int) config('tackle-remote.answer_timeout', 600),
+            onWait: $sync,
+        ));
+        $this->loop = new SessionLoop(
+            $this->laravel->make(CodingAgent::class),
+            $this->laravel->make(BudgetTracker::class),
+            $this->laravel->make(SessionStore::class),
+            $this->laravel->make(ConversationCompactor::class),
+            $state,
+            $session,
+            (int) config('tackle-remote.poll_interval_ms', 400),
+            onIdle: $sync,
+        );
 
-            sleep($delay);
-        }
+        $this->components->info("Connected to Tackle Cloud as {$stored['connector_id']}.");
+        $this->components->info("Cloud chat is ready — session \"{$session}\".");
+        $this->trapSignals();
+        $this->loop->run();
 
         return self::SUCCESS;
     }
@@ -152,6 +198,7 @@ class ConnectCommand extends Command
         foreach ([SIGINT, SIGTERM] as $signal) {
             pcntl_signal($signal, function (): void {
                 $this->running = false;
+                $this->loop?->stop();
             });
         }
     }

@@ -91,5 +91,6 @@ return [
         storage_path('tackle-remote/cloud-connector.json'),
     ),
     'connector_heartbeat_seconds' => (int) env('TACKLE_CONNECTOR_HEARTBEAT_SECONDS', 30),
+    'connector_sync_seconds' => (float) env('TACKLE_CONNECTOR_SYNC_SECONDS', 1),
 
 ];

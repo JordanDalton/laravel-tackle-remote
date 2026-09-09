@@ -24,6 +24,7 @@ class RemoteInteraction implements InteractionPolicy
         private readonly RemoteState $state,
         private readonly int $timeoutSeconds = 600,
         private readonly int $pollIntervalMs = 200,
+        private readonly ?\Closure $onWait = null,
     ) {}
 
     public function confirm(string $label, bool $default = true, ?string $hint = null): bool
@@ -114,6 +115,7 @@ class RemoteInteraction implements InteractionPolicy
         $deadline = microtime(true) + $this->timeoutSeconds;
 
         while (microtime(true) < $deadline) {
+            ($this->onWait)?->__invoke();
             $answer = $this->state->takeAnswer($id);
 
             if ($answer !== null) {

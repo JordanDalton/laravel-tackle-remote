@@ -8,7 +8,7 @@ class CloudCredentials
 {
     public function __construct(private readonly string $path) {}
 
-    /** @return array{token: string, connector_id: string, heartbeat_url: string}|null */
+    /** @return array{token: string, connector_id: string, heartbeat_url: string, sync_url: string}|null */
     public function load(): ?array
     {
         if (! is_file($this->path)) {
@@ -33,10 +33,13 @@ class CloudCredentials
             'token' => $credentials['token'],
             'connector_id' => $credentials['connector_id'],
             'heartbeat_url' => $credentials['heartbeat_url'],
+            'sync_url' => is_string($credentials['sync_url'] ?? null)
+                ? $credentials['sync_url']
+                : (string) preg_replace('#/heartbeat$#', '/sync', $credentials['heartbeat_url']),
         ];
     }
 
-    /** @param array{token: string, connector_id: string, heartbeat_url: string} $credentials */
+    /** @param array{token: string, connector_id: string, heartbeat_url: string, sync_url?: string} $credentials */
     public function store(array $credentials): void
     {
         $directory = dirname($this->path);

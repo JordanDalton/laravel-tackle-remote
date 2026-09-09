@@ -14,7 +14,10 @@ it('stores connector credentials with owner-only permissions', function () {
     try {
         $credentials->store($payload);
 
-        expect($credentials->load())->toBe($payload)
+        expect($credentials->load())->toBe([
+            ...$payload,
+            'sync_url' => 'https://cloud.example/api/connector/sync',
+        ])
             ->and(fileperms($path) & 0777)->toBe(0600);
 
         $credentials->forget();

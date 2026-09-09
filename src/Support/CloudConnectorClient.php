@@ -11,7 +11,7 @@ class CloudConnectorClient
 
     /**
      * @param  array{name: string, version?: string|null, capabilities?: list<string>, metadata?: array<string, mixed>}  $identity
-     * @return array{token: string, connector_id: string, heartbeat_url: string}
+     * @return array{token: string, connector_id: string, heartbeat_url: string, sync_url: string}
      */
     public function enroll(string $url, string $code, array $identity): array
     {
@@ -37,6 +37,9 @@ class CloudConnectorClient
             'token' => $credentials['token'],
             'connector_id' => $credentials['connector_id'],
             'heartbeat_url' => $credentials['heartbeat_url'],
+            'sync_url' => is_string($credentials['sync_url'] ?? null)
+                ? $credentials['sync_url']
+                : preg_replace('#/heartbeat$#', '/sync', $credentials['heartbeat_url']),
         ];
     }
 
@@ -53,5 +56,29 @@ class CloudConnectorClient
             ->timeout(15)
             ->post($credentials['heartbeat_url'], $state)
             ->throw();
+    }
+
+    /**
+     * @param  array{token: string, connector_id: string, heartbeat_url: string, sync_url?: string}  $credentials
+     * @param  array<string, mixed>  $payload
+     * @return array{commands: array<int, array<string, mixed>>, server_time?: string}
+     */
+    public function sync(array $credentials, array $payload): array
+    {
+        $url = $credentials['sync_url'] ?? preg_replace('#/heartbeat$#', '/sync', $credentials['heartbeat_url']);
+        $data = $this->http
+            ->asJson()
+            ->acceptJson()
+            ->withToken($credentials['token'])
+            ->timeout(30)
+            ->post($url, $payload)
+            ->throw()
+            ->json('data');
+
+        if (! is_array($data) || ! is_array($data['commands'] ?? null)) {
+            throw new RuntimeException('Tackle Cloud returned an invalid connector sync response.');
+        }
+
+        return $data;
     }
 }
