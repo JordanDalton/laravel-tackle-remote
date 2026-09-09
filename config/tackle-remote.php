@@ -74,4 +74,22 @@ return [
     */
     'poll_interval_ms' => (int) env('TACKLE_REMOTE_POLL_MS', 400),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Tackle Cloud Connector
+    |--------------------------------------------------------------------------
+    |
+    | The outbound connector enrolls once, stores its revocable credential
+    | outside the repository, and then keeps this deployment visible to
+    | Tackle Cloud. No inbound port or public reverse proxy is required.
+    |
+    */
+    'cloud_url' => env('TACKLE_CLOUD_URL'),
+    'connector_name' => env('TACKLE_CONNECTOR_NAME'),
+    'connector_credentials_path' => env(
+        'TACKLE_CONNECTOR_CREDENTIALS_PATH',
+        storage_path('tackle-remote/cloud-connector.json'),
+    ),
+    'connector_heartbeat_seconds' => (int) env('TACKLE_CONNECTOR_HEARTBEAT_SECONDS', 30),
+
 ];

@@ -47,6 +47,36 @@ php artisan vendor:publish --tag=tackle-remote-config   # optional
 Requires `jordandalton/laravel-tackle` ^1.22 and its configuration
 (provider API key, etc.).
 
+For a production Tackle Cloud connector, install the package as a production
+dependency so Forge's `composer install --no-dev` keeps the command:
+
+```bash
+composer require jordandalton/laravel-tackle-remote
+```
+
+## Tackle Cloud connector
+
+Tackle Cloud removes the need to expose `tackle:remote` or repeatedly scan
+mobile pairing codes. Create a project environment in Tackle Cloud, click
+**Connect server**, and run the generated command from that Laravel project:
+
+```bash
+php artisan tackle:connect \
+    --url=https://cloud.example/api/connectors/enroll \
+    --code=tkl_enroll_single_use_code
+```
+
+The first run exchanges the short-lived enrollment code for a revocable
+connector token stored at
+`storage/tackle-remote/cloud-connector.json` with owner-only permissions.
+Subsequent daemon restarts use that saved credential, so the enrollment code
+is never needed again.
+
+Run `php artisan tackle:connect` as a long-running Forge daemon. It makes
+outbound HTTPS requests only; no inbound port, reverse proxy, or VPN is needed.
+To deliberately replace a connector, run `php artisan tackle:connect --forget`
+and generate a fresh enrollment in Tackle Cloud.
+
 ## Usage
 
 ```bash

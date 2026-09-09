@@ -4,6 +4,7 @@ namespace TackleRemote;
 
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
+use TackleRemote\Commands\ConnectCommand;
 use TackleRemote\Commands\RemoteCommand;
 
 class TackleRemoteServiceProvider extends PackageServiceProvider
@@ -14,6 +15,7 @@ class TackleRemoteServiceProvider extends PackageServiceProvider
             ->name('laravel-tackle-remote')
             ->hasConfigFile('tackle-remote')
             ->hasCommands([
+                ConnectCommand::class,
                 RemoteCommand::class,
             ]);
     }
