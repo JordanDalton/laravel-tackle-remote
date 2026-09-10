@@ -22,14 +22,14 @@ use Throwable;
 class ConnectCommand extends Command
 {
     protected $signature = 'tackle:connect
-        {--url= : Tackle Cloud connector enrollment URL}
+        {--url= : Tackler connector enrollment URL}
         {--code= : Single-use connector enrollment code}
         {--name= : Name shown for this deployment}
         {--session=cloud : Persistent Tackle session used by Cloud clients}
         {--once : Enroll or heartbeat once, then exit}
         {--forget : Remove the saved connector credential and exit}';
 
-    protected $description = 'Keep this Laravel deployment connected to Tackle Cloud';
+    protected $description = 'Keep this Laravel deployment connected to Tackler';
 
     private bool $running = true;
 
@@ -43,7 +43,7 @@ class ConnectCommand extends Command
 
         if ((bool) $this->option('forget')) {
             $credentials->forget();
-            $this->components->info('Saved Tackle Cloud connector credential removed.');
+            $this->components->info('Saved Tackler connector credential removed.');
 
             return self::SUCCESS;
         }
@@ -57,7 +57,7 @@ class ConnectCommand extends Command
 
                 if ($url === '' || $code === '') {
                     $this->components->error(
-                        'This deployment is not enrolled. Copy the tackle:connect command from Tackle Cloud.',
+                        'This deployment is not enrolled. Copy the tackle:connect command from Tackler.',
                     );
 
                     return self::FAILURE;
@@ -65,7 +65,7 @@ class ConnectCommand extends Command
 
                 $stored = $client->enroll($url, $code, $this->identity());
                 $credentials->store($stored);
-                $this->components->info('Deployment enrolled with Tackle Cloud.');
+                $this->components->info('Deployment enrolled with Tackler.');
             } elseif ($this->option('code')) {
                 $this->components->warn(
                     'A connector credential is already saved; the single-use enrollment code was ignored.',
@@ -80,18 +80,18 @@ class ConnectCommand extends Command
         if ((bool) $this->option('once')) {
             try {
                 $client->heartbeat($stored, $this->heartbeatState());
-                $this->components->info("Connected to Tackle Cloud as {$stored['connector_id']}.");
+                $this->components->info("Connected to Tackler as {$stored['connector_id']}.");
             } catch (RequestException $exception) {
                 $status = $exception->response->status();
                 $this->components->error(
                     in_array($status, [401, 403], true)
                         ? 'The connector credential was rejected or revoked. Run tackle:connect --forget, then enroll again.'
-                        : "Tackle Cloud heartbeat failed with HTTP {$status}; retrying.",
+                        : "Tackler heartbeat failed with HTTP {$status}; retrying.",
                 );
 
                 return self::FAILURE;
             } catch (Throwable $exception) {
-                $this->components->error("Tackle Cloud is unavailable: {$exception->getMessage()}");
+                $this->components->error("Tackler is unavailable: {$exception->getMessage()}");
 
                 return self::FAILURE;
             }
@@ -134,7 +134,7 @@ class ConnectCommand extends Command
                 $lastError = '';
             } catch (Throwable $exception) {
                 if ($exception->getMessage() !== $lastError) {
-                    $this->components->warn("Tackle Cloud sync failed: {$exception->getMessage()} Retrying.");
+                    $this->components->warn("Tackler sync failed: {$exception->getMessage()} Retrying.");
                     $lastError = $exception->getMessage();
                 }
             }
@@ -156,7 +156,7 @@ class ConnectCommand extends Command
             onIdle: $sync,
         );
 
-        $this->components->info("Connected to Tackle Cloud as {$stored['connector_id']}.");
+        $this->components->info("Connected to Tackler as {$stored['connector_id']}.");
         $this->components->info("Cloud chat is ready — session \"{$session}\".");
         $this->trapSignals();
         $this->loop->run();

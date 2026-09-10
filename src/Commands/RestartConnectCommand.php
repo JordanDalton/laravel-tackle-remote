@@ -9,7 +9,7 @@ class RestartConnectCommand extends Command
 {
     protected $signature = 'tackle:connect:restart';
 
-    protected $description = 'Gracefully restart Tackle Cloud connector daemons';
+    protected $description = 'Gracefully restart Tackler connector daemons';
 
     public function handle(): int
     {
@@ -17,7 +17,7 @@ class RestartConnectCommand extends Command
             (string) config('tackle-remote.connector_restart_signal_path'),
         ))->request();
 
-        $this->components->info('Tackle Cloud connector restart requested.');
+        $this->components->info('Tackler connector restart requested.');
 
         return self::SUCCESS;
     }

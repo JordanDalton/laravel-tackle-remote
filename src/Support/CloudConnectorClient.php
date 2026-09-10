@@ -30,7 +30,7 @@ class CloudConnectorClient
             || ! is_string($credentials['connector_id'] ?? null)
             || ! is_string($credentials['heartbeat_url'] ?? null)
         ) {
-            throw new RuntimeException('Tackle Cloud returned an invalid connector enrollment response.');
+            throw new RuntimeException('Tackler returned an invalid connector enrollment response.');
         }
 
         return [
@@ -76,7 +76,7 @@ class CloudConnectorClient
             ->json('data');
 
         if (! is_array($data) || ! is_array($data['commands'] ?? null)) {
-            throw new RuntimeException('Tackle Cloud returned an invalid connector sync response.');
+            throw new RuntimeException('Tackler returned an invalid connector sync response.');
         }
 
         return $data;

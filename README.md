@@ -47,17 +47,17 @@ php artisan vendor:publish --tag=tackle-remote-config   # optional
 Requires `jordandalton/laravel-tackle` ^1.22 and its configuration
 (provider API key, etc.).
 
-For a production Tackle Cloud connector, install the package as a production
+For a production Tackler connector, install the package as a production
 dependency so Forge's `composer install --no-dev` keeps the command:
 
 ```bash
 composer require jordandalton/laravel-tackle-remote
 ```
 
-## Tackle Cloud connector
+## Tackler connector
 
-Tackle Cloud removes the need to expose `tackle:remote` or repeatedly scan
-mobile pairing codes. Create a project environment in Tackle Cloud, click
+Tackler removes the need to expose `tackle:remote` or repeatedly scan mobile
+pairing codes. Create a project environment in Tackler, click
 **Connect server**, and run the generated command from that Laravel project:
 
 ```bash
@@ -87,7 +87,7 @@ The first deployment containing this command still needs one manual daemon
 restart. Later deployments restart gracefully without re-enrollment.
 
 To deliberately replace a connector, run `php artisan tackle:connect --forget`
-and generate a fresh enrollment in Tackle Cloud.
+and generate a fresh enrollment in Tackler.
 
 ## Usage
 

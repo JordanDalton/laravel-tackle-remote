@@ -76,12 +76,12 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Tackle Cloud Connector
+    | Tackler Connector
     |--------------------------------------------------------------------------
     |
     | The outbound connector enrolls once, stores its revocable credential
     | outside the repository, and then keeps this deployment visible to
-    | Tackle Cloud. No inbound port or public reverse proxy is required.
+    | Tackler. No inbound port or public reverse proxy is required.
     |
     */
     'cloud_url' => env('TACKLE_CLOUD_URL'),

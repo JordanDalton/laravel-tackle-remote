@@ -25,7 +25,7 @@ class CloudCredentials
             || ! is_string($credentials['heartbeat_url'] ?? null)
         ) {
             throw new RuntimeException(
-                "The Tackle Cloud credential at {$this->path} is unreadable. Run tackle:connect --forget and enroll again.",
+                "The Tackler credential at {$this->path} is unreadable. Run tackle:connect --forget and enroll again.",
             );
         }
 
@@ -51,7 +51,7 @@ class CloudCredentials
         $encoded = json_encode($credentials, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
 
         if (! is_string($encoded) || file_put_contents($this->path, $encoded.PHP_EOL, LOCK_EX) === false) {
-            throw new RuntimeException("Could not store the Tackle Cloud credential at {$this->path}.");
+            throw new RuntimeException("Could not store the Tackler credential at {$this->path}.");
         }
 
         chmod($this->path, 0600);
@@ -60,7 +60,7 @@ class CloudCredentials
     public function forget(): void
     {
         if (is_file($this->path) && ! unlink($this->path)) {
-            throw new RuntimeException("Could not remove the Tackle Cloud credential at {$this->path}.");
+            throw new RuntimeException("Could not remove the Tackler credential at {$this->path}.");
         }
     }
 
