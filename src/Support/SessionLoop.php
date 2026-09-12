@@ -3,6 +3,7 @@
 namespace TackleRemote\Support;
 
 use FilesystemIterator;
+use Illuminate\Http\Client\RequestException;
 use Laravel\Ai\Files\Image;
 use Laravel\Ai\Streaming\Events\StreamEnd;
 use Laravel\Ai\Streaming\Events\TextDelta;
@@ -219,10 +220,27 @@ class SessionLoop
                 }
             });
         } catch (Throwable $e) {
-            $this->state->emit('error', ['text' => $e->getMessage()]);
+            $this->state->emit('error', ['text' => $this->readableError($e)]);
         }
 
         $this->state->emit('turn_done', []);
+    }
+
+    private function readableError(Throwable $exception): string
+    {
+        $isUnauthorized = $exception instanceof RequestException
+            ? $exception->response->status() === 401
+            : str_contains($exception->getMessage(), 'status code 401');
+
+        if (! $isUnauthorized) {
+            return $exception->getMessage();
+        }
+
+        $provider = (string) config('tackle.provider', 'anthropic');
+
+        return "The [{$provider}] AI provider rejected its credentials (HTTP 401). "
+            .'Verify that provider\'s API key and URL in this deployment, run php artisan optimize:clear, '
+            .'then restart the tackle:connect daemon.';
     }
 
     /**

@@ -92,6 +92,16 @@ copy the fresh `tackle:connect` command from Tackler. If that fresh command
 finds a saved credential that Tackler has already revoked, it safely replaces
 the credential automatically.
 
+### Troubleshooting HTTP 401 errors
+
+- **"Your Tackler sign-in expired"** comes from the mobile access token; sign
+  in to Tackler again.
+- **"Invalid connector token"** in the daemon log comes from the deployment
+  connector; generate a fresh enrollment in Tackler.
+- A 401 shown as an agent response comes from the configured model provider.
+  Run `php artisan tackle:health --probe-provider`, correct that deployment's
+  provider key or URL, clear its config cache, and restart `tackle:connect`.
+
 ## Usage
 
 ```bash

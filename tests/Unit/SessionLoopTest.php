@@ -129,6 +129,62 @@ class LoopTestRecordingAgent implements CodingAgent
     }
 }
 
+class LoopTestUnauthorizedAgent implements CodingAgent
+{
+    use Promptable;
+
+    public function instructions(): string
+    {
+        return '';
+    }
+
+    public function tools(): iterable
+    {
+        return [];
+    }
+
+    public function messages(): iterable
+    {
+        return [];
+    }
+
+    public function stream(mixed $prompt, array $attachments = [], mixed $provider = null, ?string $model = null, ?int $timeout = null): StreamableAgentResponse
+    {
+        throw new RuntimeException('HTTP request returned status code 401');
+    }
+}
+
+it('turns provider authentication failures into actionable remote errors', function () {
+    config()->set('tackle.provider', 'anthropic');
+    $dir = sys_get_temp_dir().'/tackle-remote-loop-'.uniqid();
+    $state = new RemoteState($dir);
+    $state->pushMessage('hello');
+
+    $loop = new SessionLoop(
+        new LoopTestUnauthorizedAgent,
+        app(BudgetTracker::class),
+        app(SessionStore::class),
+        app(ConversationCompactor::class),
+        $state,
+        'loop-provider-auth-test',
+        pollIntervalMs: 1,
+        onIdle: function () use (&$loop) {
+            $loop->stop();
+        },
+    );
+
+    $loop->run();
+
+    $error = collect($state->eventsAfter(0)['events'])->firstWhere('type', 'error');
+
+    expect($error['text'])
+        ->toContain('[anthropic] AI provider rejected its credentials')
+        ->toContain('php artisan optimize:clear')
+        ->toContain('restart the tackle:connect daemon');
+
+    exec('rm -rf '.escapeshellarg($dir));
+});
+
 it('passes uploaded images to the agent as attachments', function () {
     $dir = sys_get_temp_dir().'/tackle-remote-loop-'.uniqid();
     $state = new RemoteState($dir);
