@@ -5,6 +5,7 @@ namespace TackleRemote\Commands;
 use Composer\InstalledVersions;
 use Illuminate\Console\Command;
 use Illuminate\Http\Client\RequestException;
+use RuntimeException;
 use Tackle\Contracts\CodingAgent;
 use Tackle\Contracts\InteractionPolicy;
 use Tackle\Support\BudgetTracker;
@@ -43,7 +44,11 @@ class ConnectCommand extends Command
 
         if ((bool) $this->option('forget')) {
             $credentials->forget();
+            (new ConnectorRestartSignal(
+                (string) config('tackle-remote.connector_restart_signal_path'),
+            ))->request();
             $this->components->info('Saved Tackler connector credential removed.');
+            $this->components->info('The running connector was asked to restart.');
 
             return self::SUCCESS;
         }
@@ -66,10 +71,8 @@ class ConnectCommand extends Command
                 $stored = $client->enroll($url, $code, $this->identity());
                 $credentials->store($stored);
                 $this->components->info('Deployment enrolled with Tackler.');
-            } elseif ($this->option('code')) {
-                $this->components->warn(
-                    'A connector credential is already saved; the single-use enrollment code was ignored.',
-                );
+            } elseif (trim((string) $this->option('code')) !== '') {
+                $stored = $this->refreshRejectedCredential($client, $credentials, $stored);
             }
         } catch (Throwable $exception) {
             $this->components->error($exception->getMessage());
@@ -196,6 +199,47 @@ class ConnectCommand extends Command
         } catch (Throwable) {
             return null;
         }
+    }
+
+    /**
+     * Keep a valid saved credential across ordinary daemon restarts, but use a
+     * fresh enrollment code when Tackler has revoked the saved token.
+     *
+     * @param  array{token: string, connector_id: string, heartbeat_url: string, sync_url: string}  $stored
+     * @return array{token: string, connector_id: string, heartbeat_url: string, sync_url: string}
+     */
+    private function refreshRejectedCredential(
+        CloudConnectorClient $client,
+        CloudCredentials $credentials,
+        array $stored,
+    ): array {
+        try {
+            $client->heartbeat($stored, $this->heartbeatState());
+            $this->components->warn(
+                'A valid connector credential is already saved; the single-use enrollment code was ignored.',
+            );
+
+            return $stored;
+        } catch (RequestException $exception) {
+            if (! in_array($exception->response->status(), [401, 403], true)) {
+                throw $exception;
+            }
+        }
+
+        $url = trim((string) ($this->option('url') ?: config('tackle-remote.cloud_url')));
+        $code = trim((string) $this->option('code'));
+
+        if ($url === '') {
+            throw new RuntimeException(
+                'The saved connector credential was rejected, but no Tackler enrollment URL was provided.',
+            );
+        }
+
+        $replacement = $client->enroll($url, $code, $this->identity());
+        $credentials->store($replacement);
+        $this->components->info('The saved connector credential was rejected; deployment re-enrolled with Tackler.');
+
+        return $replacement;
     }
 
     private function trapSignals(): void

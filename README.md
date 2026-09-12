@@ -86,8 +86,11 @@ php artisan tackle:connect:restart
 The first deployment containing this command still needs one manual daemon
 restart. Later deployments restart gracefully without re-enrollment.
 
-To deliberately replace a connector, run `php artisan tackle:connect --forget`
-and generate a fresh enrollment in Tackler.
+To deliberately replace a connector, run `php artisan tackle:connect --forget`.
+This removes the saved credential and asks the running daemon to restart. Then
+copy the fresh `tackle:connect` command from Tackler. If that fresh command
+finds a saved credential that Tackler has already revoked, it safely replaces
+the credential automatically.
 
 ## Usage
 
