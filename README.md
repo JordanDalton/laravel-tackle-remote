@@ -92,6 +92,15 @@ copy the fresh `tackle:connect` command from Tackler. If that fresh command
 finds a saved credential that Tackler has already revoked, it safely replaces
 the credential automatically.
 
+When moving a deployment to a different Tackler workspace, stop its Forge
+`tackle:connect` daemon first, run `php artisan tackle:connect --forget` from
+that Laravel deployment, and create a fresh enrollment under the destination
+project and environment. Run the generated enrollment command once with
+`--once`, then start the daemon using only `php artisan tackle:connect`.
+Revoke the old workspace's connector after the new one is online. A valid
+saved credential is intentionally retained on ordinary restarts, even if a
+new enrollment code is passed.
+
 ### Troubleshooting HTTP 401 errors
 
 - **"Your Tackler sign-in expired"** comes from the mobile access token; sign

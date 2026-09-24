@@ -369,6 +369,7 @@ class SessionLoop
         $this->state->putState([
             'status' => $status,
             'session' => $this->sessionName,
+            'provider' => (string) config('tackle.provider', 'anthropic'),
             'model' => (string) config('tackle.model'),
             'budget' => [
                 'spent_usd' => round($this->budget->estimatedCost(), 4),

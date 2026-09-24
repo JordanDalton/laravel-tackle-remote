@@ -32,6 +32,7 @@ class LoopTestIdleAgent implements CodingAgent
 }
 
 it('invokes the onIdle callback on idle ticks', function () {
+    config()->set('tackle.provider', 'anthropic');
     $dir = sys_get_temp_dir().'/tackle-remote-loop-'.uniqid();
     $state = new RemoteState($dir);
     $ticks = 0;
@@ -56,7 +57,8 @@ it('invokes the onIdle callback on idle ticks', function () {
     $loop->run();
 
     expect($ticks)->toBeGreaterThanOrEqual(3)
-        ->and($state->state()['status'])->toBe('stopped');
+        ->and($state->state()['status'])->toBe('stopped')
+        ->and($state->state()['provider'])->toBe('anthropic');
 
     exec('rm -rf '.escapeshellarg($dir));
 });
